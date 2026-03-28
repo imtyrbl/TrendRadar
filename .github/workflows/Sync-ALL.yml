@@ -3,7 +3,7 @@ name: Sync ALL
 on:
   schedule:
     # 每天凌晨4点自动同步一次
-    - cron: "0 20 * * *"
+    #- cron: "0 20 * * *"
   workflow_dispatch:  # 也支持手动触发
 
 jobs:
