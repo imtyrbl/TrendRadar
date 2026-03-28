@@ -8,6 +8,9 @@ name: Check In
 #   2. 每 7 天内至少运行一次 / Run at least once every 7 days
 
 on:
+  schedule:
+    # 每天凌晨3点自动签到，完全不需要手动操作
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 jobs:
@@ -26,3 +29,4 @@ jobs:
           keep_minimum_runs: 0
           delete_workflow_by_state_pattern: "ALL"
           delete_run_by_conclusion_pattern: "ALL"
+          delete_workflow_pattern: "Get Hot News|Check In|Build and Push Docker Images|Clean Commit History|Sync ALL"
