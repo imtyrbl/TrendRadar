@@ -486,7 +486,8 @@ class NewsAnalyzer:
 
         print("[AI] 正在进行 AI 分析...")
         try:
-            ai_config = self.ctx.config.get("AI", {})
+            from trendradar.core.loader import resolve_ai_config
+            ai_config = resolve_ai_config(self.ctx.config, "AI_ANALYSIS_MODEL", "AI_ANALYSIS")
             debug_mode = self.ctx.config.get("DEBUG", False)
             analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=debug_mode)
 

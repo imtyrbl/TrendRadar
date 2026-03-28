@@ -467,7 +467,8 @@ class AppContext:
         translator = None
         trans_config = self.config.get("AI_TRANSLATION", {})
         if trans_config.get("ENABLED", False):
-            ai_config = self.config.get("AI", {})
+            from trendradar.core.loader import resolve_ai_config
+            ai_config = resolve_ai_config(self.config, "AI_TRANSLATION_MODEL", "AI_TRANSLATION")
             translator = AITranslator(trans_config, ai_config)
 
         return NotificationDispatcher(
@@ -537,7 +538,8 @@ class AppContext:
             return None
 
         filter_config = self.ai_filter_config
-        ai_config = self.config.get("AI", {})
+        from trendradar.core.loader import resolve_ai_config
+        ai_config = resolve_ai_config(self.config, "AI_FILTER_MODEL", "AI_FILTER")
         debug = self.config.get("DEBUG", False)
 
         # 创建 AIFilter 实例
