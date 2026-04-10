@@ -1,0 +1,80 @@
+name: Sync ALL
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout current fork (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync from upstream
+        env:
+          GH_PAT: ${{ secrets.PAT }}
+          GH_TOKEN: ${{ secrets.PAT }}
+          REPO: imtyrbl/TrendRadar
+        run: |
+          # Download fork's .github/workflows/ using gh api (authenticated)
+          echo "=== Downloading .github/workflows/ from fork ==="
+          mkdir -p .github/workflows
+          gh api repos/$REPO/contents/.github/workflows \
+            --jq '.[] | select(.type=="file") | "\(.name)|\(.download_url)"' | \
+            while IFS='|' read -r name url; do
+              echo "Downloading $name..."
+              curl -fsSL "$url" -o ".github/workflows/$name" || echo "Failed to download $name"
+            done
+
+          echo "=== Downloaded workflows (before reset) ==="
+          ls .github/workflows/
+
+          # Sync from upstream
+          echo ""
+          echo "=== Syncing from upstream ==="
+          git remote add upstream https://github.com/sansan0/TrendRadar.git
+          git fetch upstream
+          git reset --hard upstream/master
+
+          echo "=== After reset (upstream .github/) ==="
+          ls .github/ || echo "No .github/ in upstream"
+          ls .github/workflows/ || echo "No workflows in upstream"
+
+          # Restore fork's workflows into upstream's .github/workflows/
+          echo ""
+          echo "=== Restoring fork workflows ==="
+          mkdir -p .github/workflows
+          gh api repos/$REPO/contents/.github/workflows \
+            --jq '.[] | select(.type=="file") | "\(.name)|\(.download_url)"' | \
+            while IFS='|' read -r name url; do
+              echo "Restoring $name..."
+              curl -fsSL "$url" -o ".github/workflows/$name" || echo "Failed to restore $name"
+            done
+
+          echo "=== Final .github/workflows/ (should include Sync-ALL.yml) ==="
+          ls .github/workflows/
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Restore fork's workflow files after upstream sync"
+          git status
+          git push --force https://x-access-token:${GH_PAT}@github.com/$REPO.git master
+
+      - name: Verify workflows preserved
+        run: |
+          echo "=== Checking .github/workflows/ ==="
+          if [ -d ".github/workflows" ]; then
+            echo "SUCCESS: Directory exists, files:"
+            ls .github/workflows/
+          else
+            echo "ERROR: .github/workflows not found!"
+            exit 1
+          fi
