@@ -22,6 +22,7 @@ import requests
 from trendradar.context import AppContext
 from trendradar import __version__
 from trendradar.core import load_config, parse_multi_account_config, validate_paired_configs
+from trendradar.core.loader import resolve_ai_config
 from trendradar.core.analyzer import convert_keyword_stats_to_platform_stats
 from trendradar.crawler import DataFetcher
 from trendradar.storage import convert_crawl_results_to_news_data
@@ -486,7 +487,7 @@ class NewsAnalyzer:
 
         print("[AI] 正在进行 AI 分析...")
         try:
-            ai_config = self.ctx.config.get("AI", {})
+            ai_config = resolve_ai_config(self.ctx.config, "AI_ANALYSIS_MODEL", "AI_ANALYSIS")
             debug_mode = self.ctx.config.get("DEBUG", False)
             analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=debug_mode)
 

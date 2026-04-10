@@ -44,6 +44,24 @@ class AIFilter:
         debug: bool = False,
     ):
         self.client = AIClient(ai_config)
+
+        # 打印 AI 筛选配置信息
+        model = ai_config.get("MODEL", "")
+        api_key = ai_config.get("API_KEY", "")
+        api_base = ai_config.get("API_BASE", "")
+        masked_key = f"{api_key[:5]}******" if len(api_key) >= 5 else "******"
+        model_display = model.replace("/", "/\u200b") if model else "unknown"
+
+        print(f"[AI筛选] 模型: {model_display}")
+        print(f"[AI筛选] Key : {masked_key}")
+
+        if api_base:
+            print(f"[AI筛选] 接口: 存在自定义 API 端点")
+
+        timeout = ai_config.get("TIMEOUT", 120)
+        max_tokens = ai_config.get("MAX_TOKENS", 5000)
+        print(f"[AI筛选] 参数: timeout={timeout}, max_tokens={max_tokens}")
+
         self.filter_config = filter_config
         self.batch_size = filter_config.get("BATCH_SIZE", 200)
         self.get_time_func = get_time_func
