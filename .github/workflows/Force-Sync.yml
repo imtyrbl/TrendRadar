@@ -26,10 +26,11 @@ jobs:
           tar -xzf /tmp/upstream.tar.gz -C /tmp/upstream_src
           UPSTREAM_DIR=$(find /tmp/upstream_src -maxdepth 1 -type d | tail -1)
           echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> $GITHUB_ENV
-          echo "Upstream contents:"
-          ls "$UPSTREAM_DIR"
 
-      - name: Clone fork and backup .github/
+          echo "--- All files in upstream (including hidden) ---"
+          ls -la "$UPSTREAM_DIR"
+
+      - name: Clone fork and backup workflows
         run: |
           echo "=== Cloning fork ==="
           git clone https://x-access-token:$GH_PAT@github.com/$REPO.git /tmp/fork
@@ -37,11 +38,10 @@ jobs:
           git checkout $BRANCH
 
           echo ""
-          echo "=== Saving entire .github/ from fork ==="
-          mkdir -p /tmp/fork_github
-          cp -r .github/* /tmp/fork_github/
-          echo "Saved:"
-          find /tmp/fork_github -type f | sed 's|/tmp/fork_github/||'
+          echo "=== Saving fork workflows ==="
+          mkdir -p /tmp/fork_workflows
+          cp -r .github/workflows/* /tmp/fork_workflows/ 2>/dev/null || true
+          echo "Saved: $(ls /tmp/fork_workflows/)"
 
       - name: Build final content
         run: |
@@ -51,16 +51,21 @@ jobs:
           echo "--- Delete all tracked files (keep .git) ---"
           git rm -rf . --ignore-unmatch
 
-          echo "--- Copy all upstream content ---"
+          echo "--- Copy ALL upstream content (including hidden files) ---"
+          # 用 .??* 匹配所有以 . 开头的文件和目录（非隐藏的 * 已覆盖）
           cp -r "$UPSTREAM_DIR"/* .
+          cp -r "$UPSTREAM_DIR"/.??* .   # .dockerignore, .github 等隐藏文件/目录
 
-          echo "--- Replace .github/ with fork's version ---"
-          rm -rf .github
-          cp -r /tmp/fork_github .github
+          echo "--- Replace workflows with fork's version ---"
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+          cp -r /tmp/fork_workflows/* .github/workflows/
 
           echo ""
-          echo "--- Final .github/ contents ---"
-          find .github -type f | sort
+          echo "--- Verifying key files ---"
+          ls -la .dockerignore .github/ 2>/dev/null || echo "(missing)"
+          echo "--- Workflows ---"
+          ls .github/workflows/
 
       - name: Commit and push
         run: |
@@ -76,6 +81,9 @@ jobs:
 
       - name: Verify
         run: |
-          echo "=== Verifying remote .github/ ==="
+          echo "=== Verifying remote ---"
           gh api repos/$REPO/contents/.github \
             --jq '.[] | "\(.type)  \(.name)"'
+          echo ""
+          gh api repos/$REPO/contents/.dockerignore \
+            --jq '.name' 2>/dev/null || echo ".dockerignore not found"
