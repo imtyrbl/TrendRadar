@@ -1,0 +1,85 @@
+name: Force Sync
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      GH_PAT: ${{ secrets.PAT }}
+      GH_TOKEN: ${{ secrets.PAT }}
+      REPO: imtyrbl/TrendRadar
+      BRANCH: master
+      UPSTREAM_REPO: sansan0/TrendRadar
+    steps:
+      - name: Download upstream zipball
+        run: |
+          echo "=== Downloading upstream zipball ==="
+          curl -fsSL https://github.com/sansan0/TrendRadar/archive/refs/heads/master.tar.gz -o /tmp/upstream.tar.gz
+          echo "Downloaded: $(du -sh /tmp/upstream.tar.gz)"
+
+          mkdir -p /tmp/upstream_src
+          tar -xzf /tmp/upstream.tar.gz -C /tmp/upstream_src
+          UPSTREAM_DIR=$(find /tmp/upstream_src -maxdepth 1 -type d | tail -1)
+          echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> $GITHUB_ENV
+          echo "Files in upstream:"
+          ls "$UPSTREAM_DIR"
+
+      - name: Clone fork and backup workflows
+        run: |
+          echo "=== Cloning fork ==="
+          git clone https://x-access-token:$GH_PAT@github.com/$REPO.git /tmp/fork
+          cd /tmp/fork
+          git checkout $BRANCH
+          echo "Fork workflows:"
+          ls .github/workflows/ 2>/dev/null || echo "(none)"
+
+          echo ""
+          echo "=== Saving fork workflows ==="
+          mkdir -p /tmp/fork_workflows
+          cp -r .github/workflows/* /tmp/fork_workflows/ 2>/dev/null || true
+          echo "Saved: $(ls /tmp/fork_workflows/)"
+
+      - name: Build final content
+        run: |
+          echo "=== Building final repo ==="
+          cd /tmp/fork
+
+          echo "--- Replacing all files with upstream (except .github/) ---"
+          git rm -rf . --ignore-unmatch
+          cp -r "$UPSTREAM_DIR"/* .
+          rm -rf .github
+
+          echo "--- Restoring fork workflows ---"
+          mkdir -p .github/workflows
+          cp -r /tmp/fork_workflows/* .github/workflows/
+
+          echo ""
+          echo "--- Final state ---"
+          echo "Top-level files:"
+          ls
+          echo ""
+          echo "Workflows:"
+          ls .github/workflows/
+
+      - name: Commit and push
+        run: |
+          echo "=== Committing ==="
+          cd /tmp/fork
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "Force sync from upstream, preserve workflows" || echo "(nothing to commit)"
+          git push --force origin $BRANCH
+          echo "=== DONE ==="
+
+      - name: Verify
+        run: |
+          echo "=== Verifying remote workflows ==="
+          gh api repos/$REPO/contents/.github/workflows \
+            --jq '.[] | .name'
