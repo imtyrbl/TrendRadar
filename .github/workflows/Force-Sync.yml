@@ -26,45 +26,41 @@ jobs:
           tar -xzf /tmp/upstream.tar.gz -C /tmp/upstream_src
           UPSTREAM_DIR=$(find /tmp/upstream_src -maxdepth 1 -type d | tail -1)
           echo "UPSTREAM_DIR=$UPSTREAM_DIR" >> $GITHUB_ENV
-          echo "Files in upstream:"
+          echo "Upstream contents:"
           ls "$UPSTREAM_DIR"
 
-      - name: Clone fork and backup workflows
+      - name: Clone fork and backup .github/
         run: |
           echo "=== Cloning fork ==="
           git clone https://x-access-token:$GH_PAT@github.com/$REPO.git /tmp/fork
           cd /tmp/fork
           git checkout $BRANCH
-          echo "Fork workflows:"
-          ls .github/workflows/ 2>/dev/null || echo "(none)"
 
           echo ""
-          echo "=== Saving fork workflows ==="
-          mkdir -p /tmp/fork_workflows
-          cp -r .github/workflows/* /tmp/fork_workflows/ 2>/dev/null || true
-          echo "Saved: $(ls /tmp/fork_workflows/)"
+          echo "=== Saving entire .github/ from fork ==="
+          mkdir -p /tmp/fork_github
+          cp -r .github/* /tmp/fork_github/
+          echo "Saved:"
+          find /tmp/fork_github -type f | sed 's|/tmp/fork_github/||'
 
       - name: Build final content
         run: |
           echo "=== Building final repo ==="
           cd /tmp/fork
 
-          echo "--- Replacing all files with upstream (except .github/) ---"
+          echo "--- Delete all tracked files (keep .git) ---"
           git rm -rf . --ignore-unmatch
+
+          echo "--- Copy all upstream content ---"
           cp -r "$UPSTREAM_DIR"/* .
+
+          echo "--- Replace .github/ with fork's version ---"
           rm -rf .github
-
-          echo "--- Restoring fork workflows ---"
-          mkdir -p .github/workflows
-          cp -r /tmp/fork_workflows/* .github/workflows/
+          cp -r /tmp/fork_github .github
 
           echo ""
-          echo "--- Final state ---"
-          echo "Top-level files:"
-          ls
-          echo ""
-          echo "Workflows:"
-          ls .github/workflows/
+          echo "--- Final .github/ contents ---"
+          find .github -type f | sort
 
       - name: Commit and push
         run: |
@@ -80,6 +76,6 @@ jobs:
 
       - name: Verify
         run: |
-          echo "=== Verifying remote workflows ==="
-          gh api repos/$REPO/contents/.github/workflows \
-            --jq '.[] | .name'
+          echo "=== Verifying remote .github/ ==="
+          gh api repos/$REPO/contents/.github \
+            --jq '.[] | "\(.type)  \(.name)"'
