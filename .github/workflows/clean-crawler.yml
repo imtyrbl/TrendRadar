@@ -7,7 +7,9 @@ name: Check In
 #   1. 点击 "Run workflow" 按钮 / Click "Run workflow" button
 #   2. 每 7 天内至少运行一次 / Run at least once every 7 days
 
-on:
+on: 
+  schedule:
+    - cron: "33 16 * * *"
   workflow_dispatch:
 
 jobs:

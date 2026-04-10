@@ -35,7 +35,7 @@ on:
     #   "15 * * * *"     → 每小时第15分钟 / minute 15 every hour
     #   "30 0-14 * * *"  → 北京时间 8:00-22:00 每小时第30分钟 / Beijing 8am-10pm
     #
-    - cron: "33 * * * *"
+    - cron: "10 0-18 * * *"
 
   workflow_dispatch:
 
@@ -44,7 +44,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -155,11 +155,25 @@ jobs:
           # 通用Webhook配置
           GENERIC_WEBHOOK_URL: ${{ secrets.GENERIC_WEBHOOK_URL }}
           GENERIC_WEBHOOK_TEMPLATE: ${{ secrets.GENERIC_WEBHOOK_TEMPLATE }}
-          # AI 配置（ai_analysis 和 ai_translation 共享模型配置）
+          # 调试模式
+          DEBUG: ${{ secrets.DEBUG }}
+          # AI 配置（默认配置，fallback）
           AI_ANALYSIS_ENABLED: ${{ secrets.AI_ANALYSIS_ENABLED }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_API_BASE: ${{ secrets.AI_API_BASE }}
+          # AI 分析专用配置
+          AI_ANALYSIS_API_KEY: ${{ secrets.AI_ANALYSIS_API_KEY }}
+          AI_ANALYSIS_API_BASE: ${{ secrets.AI_ANALYSIS_API_BASE }}
+          AI_ANALYSIS_MODEL: ${{ secrets.AI_ANALYSIS_MODEL }}
+          # AI 筛选专用配置
+          AI_FILTER_API_KEY: ${{ secrets.AI_FILTER_API_KEY }}
+          AI_FILTER_API_BASE: ${{ secrets.AI_FILTER_API_BASE }}
+          AI_FILTER_MODEL: ${{ secrets.AI_FILTER_MODEL }}
+          # AI 翻译专用配置
+          AI_TRANSLATION_API_KEY: ${{ secrets.AI_TRANSLATION_API_KEY }}
+          AI_TRANSLATION_API_BASE: ${{ secrets.AI_TRANSLATION_API_BASE }}
+          AI_TRANSLATION_MODEL: ${{ secrets.AI_TRANSLATION_MODEL }}
           # 远程存储配置
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
@@ -168,3 +182,12 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
         run: uv run python -m trendradar
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
+          publish_branch: gh-pages
+          commit_message: "Deploy HTML report - ${{ github.event.head_commit.message }}"
+          allow_empty_commit: true
