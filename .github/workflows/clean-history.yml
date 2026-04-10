@@ -1,0 +1,44 @@
+name: Clean Commit History
+
+on:
+  workflow_dispatch:
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Backup current state
+        run: |
+          mkdir -p /tmp/backup
+          cp -r . /tmp/backup/
+
+      - name: Create orphan branch
+        run: |
+          git checkout --orphan new-master
+
+      - name: Add all files
+        run: |
+          git add -A
+          git commit -m "Initial commit"
+
+      - name: Delete old master and rename
+        run: |
+          git branch -D master
+          git branch -m master
+
+      - name: Force push
+        run: |
+          git push origin master --force
