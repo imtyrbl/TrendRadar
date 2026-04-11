@@ -9,7 +9,7 @@ name: Check In
 
 on: 
   schedule:
-    - cron: "33 16 * * *"
+    - cron: "33 22 */6 * *"
   workflow_dispatch:
 
 jobs:
