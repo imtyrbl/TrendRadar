@@ -28,4 +28,4 @@ jobs:
           keep_minimum_runs: 0
           delete_workflow_by_state_pattern: "ALL"
           delete_run_by_conclusion_pattern: "ALL"
-          delete_workflow_pattern: "Get Hot News|Check In|Build and Push Docker Images|Clean Commit History|pages build and deployment|Sync ALL|Force Sync"
+          #delete_workflow_pattern: "Get Hot News|Check In|Build and Push Docker Images|Clean Commit History|pages build and deployment|Sync ALL|Force Sync"
