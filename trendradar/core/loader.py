@@ -84,9 +84,12 @@ def _load_report_config(config_data: Dict) -> Dict:
     sort_by_position_env = _get_env_bool("SORT_BY_POSITION_FIRST")
     max_news_env = _get_env_int("MAX_NEWS_PER_KEYWORD")
 
+    report_mode = report_config.get("mode", "daily")
+    rss_report_mode = report_config.get("rss_mode", "daily")
+    print(f"[加载报告配置: 热榜模式={report_mode}, RSS 模式={rss_report_mode}")
     return {
-        "REPORT_MODE": report_config.get("mode", "daily"),  # 热榜模式
-        "RSS_REPORT_MODE": report_config.get("rss_mode", "daily"),  # RSS 模式（独立配置）
+        "REPORT_MODE": report_mode,  # 热榜模式
+        "RSS_REPORT_MODE": rss_report_mode,  # RSS 模式（独立配置）
         "DISPLAY_MODE": report_config.get("display_mode", "keyword"),
         "RANK_THRESHOLD": report_config.get("rank_threshold", 10),
         "SORT_BY_POSITION_FIRST": sort_by_position_env if sort_by_position_env is not None else report_config.get("sort_by_position_first", False),

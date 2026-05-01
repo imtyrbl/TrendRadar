@@ -160,6 +160,7 @@ class Scheduler:
 
         # RSS 模式：优先使用 timeline 中定义的 rss_report_mode，否则使用调度器的回退值（来自 config.yaml 的 report.rss_mode）
         timeline_rss_mode = merged.get("rss_report_mode")
+        print(f"[调度调试: merged 配置: {merged.keys()}, timeline_rss_mode={timeline_rss_mode}, fallback_rss_report_mode={self.fallback_rss_report_mode}")
         rss_report_mode = timeline_rss_mode if timeline_rss_mode else self.fallback_rss_report_mode
 
         resolved = ResolvedSchedule(
