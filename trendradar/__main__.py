@@ -845,7 +845,9 @@ class NewsAnalyzer:
                 print(f"[筛选] AI 筛选完成: {ai_filter_result.total_matched} 条匹配, {len(ai_filter_result.tags)} 个标签")
                 # 转换为与关键词匹配相同的数据结构
                 stats, ai_rss_stats = self.ctx.convert_ai_filter_to_report_data(
-                    ai_filter_result, mode=mode,
+                    ai_filter_result, 
+                    hotlist_mode=mode,
+                    rss_mode=self.rss_report_mode,
                     new_titles=new_titles, rss_new_urls=rss_new_urls,
                 )
                 total_titles = sum(len(titles) for titles in data_source.values())

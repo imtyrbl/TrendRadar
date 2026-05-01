@@ -923,7 +923,8 @@ class AppContext:
     def convert_ai_filter_to_report_data(
         self,
         ai_filter_result: AIFilterResult,
-        mode: str = "daily",
+        hotlist_mode: str = "daily",
+        rss_mode: str = "daily",
         new_titles: Optional[Dict] = None,
         rss_new_urls: Optional[set] = None,
     ) -> tuple:
@@ -953,7 +954,7 @@ class AppContext:
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
         # 与 count_word_frequency(mode="current") 的过滤逻辑对齐
         latest_time = None
-        if mode == "current":
+        if hotlist_mode == "current":
             for tag_data in ai_filter_result.tags:
                 for item in tag_data.get("items", []):
                     if item.get("source_type", "hotlist") == "hotlist":
@@ -994,7 +995,7 @@ class AppContext:
                 source_type = item.get("source_type", "hotlist")
 
                 # current 模式：跳过已下榜的热榜新闻
-                if mode == "current" and latest_time and source_type == "hotlist":
+                if hotlist_mode == "current" and latest_time and source_type == "hotlist":
                     if item.get("last_time", "") != latest_time:
                         filtered_count += 1
                         continue
@@ -1049,8 +1050,13 @@ class AppContext:
                 # incremental 模式下仅保留本轮新增命中的条目。
                 # run_ai_filter() 返回的是 active 结果集合，因此这里需要
                 # 显式过滤掉历史已命中的旧条目，才能与 keyword 模式行为对齐。
-                if mode == "incremental" and not is_new:
-                    continue
+                # 注意：热榜用 hotlist_mode，RSS 用 rss_mode 独立判断！
+                if source_type == "rss":
+                    if rss_mode == "incremental" and not is_new:
+                        continue
+                else:
+                    if hotlist_mode == "incremental" and not is_new:
+                        continue
 
                 title_entry = {
                     "title": item.get("title", ""),
@@ -1090,7 +1096,7 @@ class AppContext:
                     "titles": rss_titles,
                 })
 
-        if mode == "current" and filtered_count > 0:
+        if hotlist_mode == "current" and filtered_count > 0:
             total_kept = sum(s["count"] for s in hotlist_stats)
             print(f"[AI筛选] current 模式：过滤 {filtered_count} 条已下榜新闻，保留 {total_kept} 条当前在榜")
 
