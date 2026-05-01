@@ -228,7 +228,8 @@ class NewsAnalyzer:
         self.ctx = AppContext(config)
 
         self.request_interval = self.ctx.config["REQUEST_INTERVAL"]
-        self.report_mode = self.ctx.config["REPORT_MODE"]
+        self.report_mode = self.ctx.config["REPORT_MODE"]  # 热榜模式
+        self.rss_report_mode = self.ctx.config["RSS_REPORT_MODE"]  # RSS 模式（独立配置）
         self.frequency_file = None
         self.filter_method = None  # None=使用全局配置 ctx.filter_method
         self.interests_file = None  # None=使用全局配置 ai_filter.interests_file
@@ -332,7 +333,7 @@ class NewsAnalyzer:
     def _has_valid_content(
         self, stats: List[Dict], new_titles: Optional[Dict] = None
     ) -> bool:
-        """检查是否有有效的新闻内容"""
+        """检查是否有有效的新闻内容（热榜）"""
         if self.report_mode == "incremental":
             # 增量模式：只要有匹配的新闻就推送
             # count_word_frequency 已经确保只处理新增的新闻（包括当天第一次爬取的情况）
@@ -348,6 +349,26 @@ class NewsAnalyzer:
                 new_titles and any(len(titles) > 0 for titles in new_titles.values())
             )
             return has_matched_news or has_new_news
+
+    def _has_valid_rss_content(
+        self, rss_stats: Optional[List[Dict]], raw_rss_items: Optional[List[Dict]]
+    ) -> bool:
+        """检查是否有有效的 RSS 内容（RSS 独立模式）"""
+        if self.rss_report_mode == "incremental":
+            # 增量模式：只要有新增 RSS 就推送
+            has_matched_rss = bool(rss_stats and any(stat["count"] > 0 for stat in rss_stats))
+            has_raw_rss = bool(raw_rss_items and len(raw_rss_items) > 0)
+            return has_matched_rss or has_raw_rss
+        elif self.rss_report_mode == "current":
+            # current模式：只要有 RSS 内容就推送
+            has_matched_rss = bool(rss_stats and any(stat["count"] > 0 for stat in rss_stats))
+            has_raw_rss = bool(raw_rss_items and len(raw_rss_items) > 0)
+            return has_matched_rss or has_raw_rss
+        else:
+            # 当日汇总模式下，只要有 RSS 内容就推送
+            has_matched_rss = bool(rss_stats and any(stat["count"] > 0 for stat in rss_stats))
+            has_raw_rss = bool(raw_rss_items and len(raw_rss_items) > 0)
+            return has_matched_rss or has_raw_rss
 
     def _prepare_ai_analysis_data(
         self,
@@ -916,6 +937,7 @@ class NewsAnalyzer:
         html_file_path: Optional[str] = None,
         rss_items: Optional[List[Dict]] = None,
         rss_new_items: Optional[List[Dict]] = None,
+        raw_rss_items: Optional[List[Dict]] = None,
         standalone_data: Optional[Dict] = None,
         ai_result: Optional[AIAnalysisResult] = None,
         current_results: Optional[Dict] = None,
@@ -925,9 +947,9 @@ class NewsAnalyzer:
         has_notification = self._has_notification_configured()
         cfg = self.ctx.config
 
-        # 检查是否有有效内容（热榜或RSS）
+        # 检查是否有有效内容（热榜或RSS，各自独立模式）
         has_news_content = self._has_valid_content(stats, new_titles)
-        has_rss_content = bool(rss_items and len(rss_items) > 0)
+        has_rss_content = self._has_valid_rss_content(rss_items, raw_rss_items)
         has_any_content = has_news_content or has_rss_content
 
         # 计算热榜匹配条数
@@ -1047,7 +1069,8 @@ class NewsAnalyzer:
             print("通知功能已启用，将发送通知")
 
         mode_strategy = self._get_mode_strategy()
-        print(f"报告模式: {self.report_mode}")
+        print(f"热榜模式: {self.report_mode}")
+        print(f"RSS 模式: {self.rss_report_mode}")
         print(f"运行模式: {mode_strategy['description']}")
 
     def _crawl_data(self) -> Tuple[Dict, Dict, List]:
@@ -1226,12 +1249,12 @@ class NewsAnalyzer:
         rss_new_urls = set()  # 原始新增 RSS URLs（未经关键词过滤）
 
         # 1. 首先获取原始条目（用于独立展示区，不受 display.regions.rss 影响）
-        # 根据模式获取原始条目
-        if self.report_mode == "incremental":
+        # 根据 RSS 独立模式获取原始条目
+        if self.rss_report_mode == "incremental":
             new_items_dict = self.storage_manager.detect_new_rss_items(rss_data)
             if new_items_dict:
                 raw_rss_items = self._convert_rss_items_to_list(new_items_dict, rss_data.id_to_name)
-        elif self.report_mode == "current":
+        elif self.rss_report_mode == "current":
             latest_data = self.storage_manager.get_latest_rss_data(rss_data.date)
             if latest_data:
                 raw_rss_items = self._convert_rss_items_to_list(latest_data.items, latest_data.id_to_name)
@@ -1254,8 +1277,8 @@ class NewsAnalyzer:
                 # 收集原始新增 URLs（未经关键词过滤，用于 AI 模式 is_new 检测）
                 rss_new_urls = {item["url"] for item in new_items_list if item.get("url")}
 
-        # 3. 根据模式获取统计条目
-        if self.report_mode == "incremental":
+        # 3. 根据 RSS 独立模式获取统计条目
+        if self.rss_report_mode == "incremental":
             # 增量模式：统计条目就是新增条目
             if not new_items_list:
                 print("[RSS] 增量模式：没有新增 RSS 条目")
@@ -1278,7 +1301,7 @@ class NewsAnalyzer:
                 # 即使关键词匹配为空，也返回原始条目用于独立展示区
                 return None, None, raw_rss_items, rss_new_urls
 
-        elif self.report_mode == "current":
+        elif self.rss_report_mode == "current":
             # 当前榜单模式：统计=当前榜单所有条目
             # raw_rss_items 已在前面获取
             if not raw_rss_items:
@@ -1504,8 +1527,14 @@ class NewsAnalyzer:
         # 使用 schedule 决定的 report_mode 覆盖全局配置
         effective_mode = schedule.report_mode
         if effective_mode != self.report_mode:
-            print(f"[调度] 报告模式覆盖: {self.report_mode} -> {effective_mode}")
+            print(f"[调度] 热榜模式覆盖: {self.report_mode} -> {effective_mode}")
         self.report_mode = effective_mode
+
+        # 使用 schedule 决定的 rss_report_mode 覆盖全局配置
+        effective_rss_mode = schedule.rss_report_mode
+        if effective_rss_mode != self.rss_report_mode:
+            print(f"[调度] RSS模式覆盖: {self.rss_report_mode} -> {effective_rss_mode}")
+        self.rss_report_mode = effective_rss_mode
 
         # 重新获取 mode_strategy，确保 report_type 与覆盖后的 report_mode 一致
         mode_strategy = self._get_mode_strategy()
@@ -1688,6 +1717,7 @@ class NewsAnalyzer:
                 html_file_path=html_file,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
+                raw_rss_items=raw_rss_items,
                 standalone_data=standalone_data,
                 ai_result=ai_result,
                 current_results=results,

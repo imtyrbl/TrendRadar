@@ -85,7 +85,8 @@ def _load_report_config(config_data: Dict) -> Dict:
     max_news_env = _get_env_int("MAX_NEWS_PER_KEYWORD")
 
     return {
-        "REPORT_MODE": report_config.get("mode", "daily"),
+        "REPORT_MODE": report_config.get("mode", "daily"),  # 热榜模式
+        "RSS_REPORT_MODE": report_config.get("rss_mode", "daily"),  # RSS 模式（独立配置）
         "DISPLAY_MODE": report_config.get("display_mode", "keyword"),
         "RANK_THRESHOLD": report_config.get("rank_threshold", 10),
         "SORT_BY_POSITION_FIRST": sort_by_position_env if sort_by_position_env is not None else report_config.get("sort_by_position_first", False),

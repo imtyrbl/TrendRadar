@@ -489,12 +489,13 @@ class AppContext:
             timeline_data = self.config.get("_TIMELINE_DATA", {})
 
             self._scheduler = Scheduler(
-                schedule_config=schedule_config,
-                timeline_data=timeline_data,
-                storage_backend=self.get_storage_manager(),
-                get_time_func=self.get_time,
-                fallback_report_mode=self.config.get("REPORT_MODE", "current"),
-            )
+            schedule_config=schedule_config,
+            timeline_data=timeline_data,
+            storage_backend=self.get_storage_manager(),
+            get_time_func=self.get_time,
+            fallback_report_mode=self.config.get("REPORT_MODE", "current"),
+            fallback_rss_report_mode=self.config.get("RSS_REPORT_MODE", "current"),
+        )
         return self._scheduler
 
     # === AI 智能筛选 ===

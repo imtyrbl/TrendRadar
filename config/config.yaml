@@ -151,7 +151,9 @@ rss:
 # - incremental：最少打扰，只看新增
 # ===============================================================
 report:
-  mode: "current"                     # daily | current | incremental（schedule 开启时作为默认值）
+  mode: "current"                     # daily | current | incremental（schedule 开启时作为默认值）- 热榜模式
+
+  rss_mode: "incremental"             # daily | current | incremental - RSS 模式（独立配置）
 
   display_mode: "keyword"             # 分组维度: keyword | platform
                                       # keyword: 按关键词分组显示（默认）

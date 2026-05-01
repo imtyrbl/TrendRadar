@@ -23,7 +23,8 @@ class ResolvedSchedule:
     collect: bool
     analyze: bool
     push: bool
-    report_mode: str
+    report_mode: str                # 热榜推送模式
+    rss_report_mode: str            # RSS 推送模式（独立配置）
     ai_mode: str
     once_analyze: bool
     once_push: bool
@@ -52,6 +53,7 @@ class Scheduler:
         storage_backend: Any,
         get_time_func: Callable[[], datetime],
         fallback_report_mode: str = "current",
+        fallback_rss_report_mode: str = "current",
     ):
         """
         初始化调度器
@@ -62,12 +64,14 @@ class Scheduler:
             storage_backend: 存储后端（用于 once 去重记录）
             get_time_func: 获取当前时间的函数（应使用配置的时区）
             fallback_report_mode: 调度未启用时回退使用的 report_mode（来自 config.yaml 的 report.mode）
+            fallback_rss_report_mode: 调度未启用时回退使用的 rss_report_mode（来自 config.yaml 的 report.rss_mode）
         """
         self.schedule_config = schedule_config
         self.storage = storage_backend
         self.get_time = get_time_func
         self.enabled = schedule_config.get("enabled", True)
         self.fallback_report_mode = fallback_report_mode
+        self.fallback_rss_report_mode = fallback_rss_report_mode
 
         # 加载并构建最终 timeline
         self.timeline = self._build_timeline(schedule_config, timeline_data)
@@ -116,6 +120,7 @@ class Scheduler:
                 analyze=True,
                 push=True,
                 report_mode=self.fallback_report_mode,
+                rss_report_mode=self.fallback_rss_report_mode,
                 ai_mode="follow_report",
                 once_analyze=False,
                 once_push=False,
@@ -153,6 +158,10 @@ class Scheduler:
         print(f"[调度] 星期{weekday_names.get(weekday, '?')}，日计划: {day_plan_key}")
         print(f"[调度] 当前时间段: {period_display}")
 
+        # RSS 模式：优先使用 timeline 中定义的 rss_report_mode，否则使用调度器的回退值（来自 config.yaml 的 report.rss_mode）
+        timeline_rss_mode = merged.get("rss_report_mode")
+        rss_report_mode = timeline_rss_mode if timeline_rss_mode else self.fallback_rss_report_mode
+
         resolved = ResolvedSchedule(
             period_key=period_key,
             period_name=(
@@ -165,6 +174,7 @@ class Scheduler:
             analyze=merged.get("analyze", False),
             push=merged.get("push", False),
             report_mode=merged.get("report_mode", "current"),
+            rss_report_mode=rss_report_mode,
             ai_mode=self._resolve_ai_mode(merged),
             once_analyze=merged.get("once", {}).get("analyze", False),
             once_push=merged.get("once", {}).get("push", False),
