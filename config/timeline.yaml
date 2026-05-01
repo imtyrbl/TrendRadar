@@ -169,6 +169,7 @@ presets:
       ai_mode: "current"           # AI 分析当前榜单
       push: true                   # 每次推送当前在榜热点
       report_mode: "current"       # 当前在榜的新闻
+      rss_report_mode: "incremental"  # RSS 独立模式：增量推送
       # frequency_file: "xxx.txt"               # 关键词文件（可选，位于 config/custom/keyword/）
       # interests_file: "xxx.txt"                # AI 兴趣文件（可选，位于 config/custom/ai/）
       # filter_method: "keyword"                # 筛选策略（可选: keyword | ai，不填用全局 filter.method）
@@ -188,6 +189,7 @@ presets:
         analyze: true              # 晚间做 AI 分析
         ai_mode: "daily"           # AI 也汇总全天内容
         report_mode: "daily"       # 切换为当日全部新闻汇总
+        rss_report_mode: "daily"   # RSS 也切换为当日汇总
         once:
           analyze: false           # 窗口内只分析一次
           push: false              # 窗口内只推送一次

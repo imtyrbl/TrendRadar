@@ -1513,6 +1513,7 @@ class NewsAnalyzer:
         rss_new_items: Optional[List[Dict]] = None,
         raw_rss_items: Optional[List[Dict]] = None,
         rss_new_urls: Optional[set] = None,
+        schedule: Optional[Any] = None,
     ) -> Optional[str]:
         """执行模式特定逻辑，支持热榜+RSS合并推送
 
@@ -1520,24 +1521,21 @@ class NewsAnalyzer:
         - 每次运行都生成 HTML 报告（时间戳快照 + latest/{mode}.html + index.html）
         - 根据模式发送通知
         """
-        # 调度系统
-        scheduler = self.ctx.create_scheduler()
-        schedule = scheduler.resolve()
+        if schedule is None:
+            scheduler = self.ctx.create_scheduler()
+            schedule = scheduler.resolve()
 
-        # 使用 schedule 决定的 report_mode 覆盖全局配置
-        effective_mode = schedule.report_mode
-        if effective_mode != self.report_mode:
-            print(f"[调度] 热榜模式覆盖: {self.report_mode} -> {effective_mode}")
-        self.report_mode = effective_mode
+            # 使用 schedule 决定的 report_mode 覆盖全局配置
+            effective_mode = schedule.report_mode
+            if effective_mode != self.report_mode:
+                print(f"[调度] 热榜模式覆盖: {self.report_mode} -> {effective_mode}")
+            self.report_mode = effective_mode
 
-        # 使用 schedule 决定的 rss_report_mode 覆盖全局配置
-        effective_rss_mode = schedule.rss_report_mode
-        if effective_rss_mode != self.rss_report_mode:
-            print(f"[调度] RSS模式覆盖: {self.rss_report_mode} -> {effective_rss_mode}")
-        self.rss_report_mode = effective_rss_mode
-
-        # 重新获取 mode_strategy，确保 report_type 与覆盖后的 report_mode 一致
-        mode_strategy = self._get_mode_strategy()
+            # 使用 schedule 决定的 rss_report_mode 覆盖全局配置
+            effective_rss_mode = schedule.rss_report_mode
+            if effective_rss_mode != self.rss_report_mode:
+                print(f"[调度] RSS模式覆盖: {self.rss_report_mode} -> {effective_rss_mode}")
+            self.rss_report_mode = effective_rss_mode
 
         # 使用 schedule 决定的 frequency_file 覆盖默认值
         self.frequency_file = schedule.frequency_file
@@ -1739,6 +1737,22 @@ class NewsAnalyzer:
         try:
             self._initialize_and_check_config()
 
+            # 先执行调度器覆盖模式，避免采集时模式错误
+            scheduler = self.ctx.create_scheduler()
+            schedule = scheduler.resolve()
+
+            # 使用 schedule 决定的 report_mode 覆盖全局配置
+            effective_mode = schedule.report_mode
+            if effective_mode != self.report_mode:
+                print(f"[调度] 热榜模式覆盖: {self.report_mode} -> {effective_mode}")
+            self.report_mode = effective_mode
+
+            # 使用 schedule 决定的 rss_report_mode 覆盖全局配置
+            effective_rss_mode = schedule.rss_report_mode
+            if effective_rss_mode != self.rss_report_mode:
+                print(f"[调度] RSS模式覆盖: {self.rss_report_mode} -> {effective_rss_mode}")
+            self.rss_report_mode = effective_rss_mode
+
             mode_strategy = self._get_mode_strategy()
 
             # 抓取热榜数据
@@ -1747,11 +1761,12 @@ class NewsAnalyzer:
             # 抓取 RSS 数据（如果启用），返回统计条目、新增条目和原始条目
             rss_items, rss_new_items, raw_rss_items, rss_new_urls = self._crawl_rss_data()
 
-            # 执行模式策略，传递 RSS 数据用于合并推送
+            # 执行模式策略，传递 RSS 数据和 schedule 用于合并推送
             self._execute_mode_strategy(
                 mode_strategy, results, id_to_name, failed_ids,
                 rss_items=rss_items, rss_new_items=rss_new_items,
-                raw_rss_items=raw_rss_items, rss_new_urls=rss_new_urls
+                raw_rss_items=raw_rss_items, rss_new_urls=rss_new_urls,
+                schedule=schedule
             )
 
         except Exception as e:
