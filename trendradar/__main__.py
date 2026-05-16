@@ -1053,14 +1053,14 @@ class NewsAnalyzer:
 
         return False
 
-    def _initialize_and_check_config(self) -> None:
-        """通用初始化和配置检查"""
+    def _initialize_and_check_config(self) -> bool:
+        """通用初始化和配置检查。返回 True 表示可以继续执行。"""
         now = self.ctx.get_time()
         print(f"当前北京时间: {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
         if not self.ctx.config["ENABLE_CRAWLER"]:
             print("爬虫功能已禁用（ENABLE_CRAWLER=False），程序退出")
-            return
+            return False
 
         has_notification = self._has_notification_configured()
         if not self.ctx.config["ENABLE_NOTIFICATION"]:
@@ -1074,6 +1074,7 @@ class NewsAnalyzer:
         print(f"热榜模式: {self.report_mode}")
         print(f"RSS 模式: {self.rss_report_mode}")
         print(f"运行模式: {mode_strategy['description']}")
+        return True
 
     def _crawl_data(self) -> Tuple[Dict, Dict, List]:
         """执行数据爬取"""
@@ -1737,7 +1738,8 @@ class NewsAnalyzer:
     def run(self) -> None:
         """执行分析流程"""
         try:
-            self._initialize_and_check_config()
+            if not self._initialize_and_check_config():
+                return
 
             # 先执行调度器覆盖模式，避免采集时模式错误
             scheduler = self.ctx.create_scheduler()
