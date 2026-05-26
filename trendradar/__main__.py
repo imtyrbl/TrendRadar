@@ -29,6 +29,7 @@ from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
 from trendradar.core.scheduler import ResolvedSchedule
+from trendradar.core.cdn import fetch_with_fallback
 
 
 def _parse_version(version_str: str) -> Tuple[int, int, int]:
@@ -56,24 +57,8 @@ def _compare_version(local: str, remote: str) -> str:
 
 
 def _fetch_remote_version(version_url: str, proxy_url: Optional[str] = None) -> Optional[str]:
-    """获取远程版本号"""
-    try:
-        proxies = None
-        if proxy_url:
-            proxies = {"http": proxy_url, "https": proxy_url}
-
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "text/plain, */*",
-            "Cache-Control": "no-cache",
-        }
-
-        response = requests.get(version_url, proxies=proxies, headers=headers, timeout=10)
-        response.raise_for_status()
-        return response.text.strip()
-    except Exception as e:
-        print(f"[版本检查] 获取远程版本失败: {e}")
-        return None
+    """获取远程版本号（支持 CDN 多源回退）"""
+    return fetch_with_fallback(version_url, proxy_url)
 
 
 def _parse_config_versions(content: str) -> Dict[str, str]:
@@ -240,6 +225,13 @@ class NewsAnalyzer:
         self.proxy_url = None
         self._setup_proxy()
         self.data_fetcher = DataFetcher(self.proxy_url)
+
+        # RSS/平台元数据（用于报告头部展示）
+        self._rss_source_total = 0
+        self._rss_source_failed = 0
+        self._rss_total_count = 0
+        self._rss_matched_count = 0
+        self._hotlist_total_count = 0
 
         # 初始化存储管理器（使用 AppContext）
         self._init_storage_manager()
@@ -677,9 +669,9 @@ class NewsAnalyzer:
 
         纯数据准备方法，不检查 display.regions.standalone 开关。
         各消费者自行决定是否使用：
-        - AI 分析：由 ai.include_standalone 控制
-        - 通知推送：由 display.regions.standalone 控制（在 dispatcher 层门控）
-        - HTML 报告：始终包含（如果有数据）
+        - AI 分析：由 ai.include_standalone 控制（在 _run_ai_analysis 层门控）
+        - HTML 报告 / 邮件：由 display.regions.standalone 控制（在 HTML 生成前过滤）
+        - Webhook 推送：由 display.regions.standalone 控制（在 dispatcher 层门控）
 
         Args:
             results: 原始爬取结果 {platform_id: {title: title_data}}
@@ -872,6 +864,8 @@ class NewsAnalyzer:
                 mode=mode, global_filters=global_filters, quiet=quiet,
             )
 
+        self._hotlist_total_count = total_titles
+
         # 如果是 platform 模式，转换数据结构
         if self.ctx.display_mode == "platform" and stats:
             stats = convert_keyword_stats_to_platform_stats(
@@ -908,9 +902,15 @@ class NewsAnalyzer:
                     display_regions=display_regions,
                 )
 
+        # 计算 RSS 匹配条数（供 HTML 和推送共用）
+        self._rss_matched_count = sum(stat.get("count", 0) for stat in rss_items) if rss_items else 0
+
         # HTML生成（如果启用）— 使用翻译后的数据
         html_file = None
         if self.ctx.config["STORAGE"]["FORMATS"]["HTML"]:
+            display_regions = self.ctx.config.get("DISPLAY", {}).get("REGIONS", {})
+            html_standalone = standalone_data if display_regions.get("STANDALONE", False) else None
+            html_ai = ai_result if display_regions.get("AI_ANALYSIS", True) else None
             html_file = self.ctx.generate_html(
                 stats,
                 total_titles,
@@ -921,9 +921,17 @@ class NewsAnalyzer:
                 update_info=self.update_info if self.ctx.config["SHOW_VERSION_UPDATE"] else None,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
-                ai_analysis=ai_result,
-                standalone_data=standalone_data,
+                ai_analysis=html_ai,
+                standalone_data=html_standalone,
                 frequency_file=self.frequency_file,
+                report_metadata={
+                    "hotlist_total": total_titles,
+                    "platform_total": len(self.ctx.platform_ids),
+                    "rss_matched_count": self._rss_matched_count,
+                    "rss_total_count": self._rss_total_count,
+                    "rss_source_total": self._rss_source_total,
+                    "rss_source_failed": self._rss_source_failed,
+                },
             )
 
         return stats, html_file, ai_result, rss_items
@@ -997,6 +1005,14 @@ class NewsAnalyzer:
 
             # 准备报告数据
             report_data = self.ctx.prepare_report(stats, failed_ids, new_titles, id_to_name, mode, frequency_file=self.frequency_file)
+
+            # 注入元数据（用于推送头部展示）
+            report_data["hotlist_total"] = self._hotlist_total_count
+            report_data["platform_total"] = len(self.ctx.platform_ids)
+            report_data["rss_matched_count"] = self._rss_matched_count
+            report_data["rss_total_count"] = self._rss_total_count
+            report_data["rss_source_total"] = self._rss_source_total
+            report_data["rss_source_failed"] = self._rss_source_failed
 
             # 是否发送版本更新信息
             update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
@@ -1194,6 +1210,9 @@ class NewsAnalyzer:
             # 抓取数据
             rss_data = fetcher.fetch_all()
 
+            self._rss_source_total = len(feeds)
+            self._rss_source_failed = len(rss_data.failed_ids)
+
             # 保存到存储后端
             if self.storage_manager.save_rss_data(rss_data):
                 print(f"[RSS] 数据已保存到存储后端")
@@ -1382,6 +1401,7 @@ class NewsAnalyzer:
                     quiet=True,
                 )
 
+        self._rss_total_count = total
         return rss_stats, rss_new_stats, raw_rss_items, rss_new_urls
 
     def _convert_rss_items_to_list(self, items_dict: Dict, id_to_name: Dict) -> List[Dict]:
