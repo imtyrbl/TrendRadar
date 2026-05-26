@@ -656,11 +656,6 @@ def resolve_ai_config(config: Dict[str, Any], config_key: str, env_prefix: str) 
     # 专用配置（可能为空或只有 pass）
     specialized_config = config.get(config_key, {})
 
-    # 调试日志
-    print(f"[resolve_ai_config] config_key={config_key}, env_prefix={env_prefix}")
-    print(f"[resolve_ai_config] specialized_config={specialized_config}")
-    print(f"[resolve_ai_config] default_config={default_config}")
-
     # 如果专用配置为空或只有 pass，直接返回默认配置
     if not specialized_config or (len(specialized_config) == 1 and "pass" in specialized_config):
         # 但仍需检查专用环境变量
@@ -677,22 +672,16 @@ def resolve_ai_config(config: Dict[str, Any], config_key: str, env_prefix: str) 
         if env_model:
             result["MODEL"] = env_model
 
-        print(f"[resolve_ai_config] 使用默认配置 + 环境变量覆盖，最终 model={result.get('MODEL')}")
         return result
 
     # 合并配置：专用配置覆盖默认配置（只排除 pass 键和空值）
     result = dict(default_config)
     result.update({k.upper(): v for k, v in specialized_config.items() if k != "pass" and v})
 
-    # 调试日志
-    print(f"[resolve_ai_config] 合并后 result={result}")
-
     # 环境变量覆盖（最高优先级）
     env_model = os.getenv(f"{env_prefix}_MODEL")
     env_api_key = os.getenv(f"{env_prefix}_API_KEY")
     env_api_base = os.getenv(f"{env_prefix}_API_BASE")
-
-    print(f"[resolve_ai_config] 环境变量: {env_prefix}_MODEL={env_model}, {env_prefix}_API_KEY={env_api_key}, {env_prefix}_API_BASE={env_api_base}")
 
     if env_model:
         result["MODEL"] = env_model
@@ -700,7 +689,5 @@ def resolve_ai_config(config: Dict[str, Any], config_key: str, env_prefix: str) 
         result["API_KEY"] = env_api_key
     if env_api_base:
         result["API_BASE"] = env_api_base
-
-    print(f"[resolve_ai_config] 最终 result={result}")
 
     return result
