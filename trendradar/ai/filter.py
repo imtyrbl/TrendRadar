@@ -332,7 +332,7 @@ class AIFilter:
         interests_content: str = "",
     ) -> List[Dict]:
         """
-        阶段 B：对一批新闻标题做分类。自动拆分子批次避免 token 超限。
+        阶段 B：对一批新闻标题做分类
 
         Args:
             titles: [{"id": news_item_id, "title": str, "source": str}]
@@ -342,32 +342,6 @@ class AIFilter:
         Returns:
             [{"news_item_id": int, "tag_id": int, "relevance_score": float}, ...]
         """
-        if not titles or not tags:
-            return []
-
-        # 避免单次请求 token 过大导致免费模型报错
-        max_per_request = self.filter_config.get("MAX_TITLES_PER_REQUEST", 80)
-
-        if len(titles) <= max_per_request:
-            return self._classify_single_batch(titles, tags, interests_content)
-
-        all_results = []
-        total_sub_batches = (len(titles) + max_per_request - 1) // max_per_request
-        for i in range(0, len(titles), max_per_request):
-            sub_batch = titles[i:i + max_per_request]
-            sub_idx = i // max_per_request + 1
-            results = self._classify_single_batch(sub_batch, tags, interests_content)
-            all_results.extend(results)
-            print(f"[AI筛选]   子批次 {sub_idx}/{total_sub_batches}: {len(sub_batch)} 条 → {len(results)} 条匹配")
-
-        return all_results
-
-    def _classify_single_batch(
-        self,
-        titles: List[Dict],
-        tags: List[Dict],
-        interests_content: str = "",
-    ) -> List[Dict]:
         if not titles or not tags:
             return []
 
