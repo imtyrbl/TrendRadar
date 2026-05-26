@@ -126,7 +126,39 @@ class AITranslator:
 
     def translate_batch(self, texts: List[str]) -> BatchTranslationResult:
         """
-        批量翻译文本（单次 API 调用）
+        批量翻译文本。自动拆分子批次避免 max_tokens 截断。
+
+        Args:
+            texts: 要翻译的文本列表
+
+        Returns:
+            BatchTranslationResult: 批量翻译结果
+        """
+        if not texts:
+            return BatchTranslationResult(total_count=0)
+
+        # 每批最多 40 条，避免 max_tokens 输出截断
+        max_per_batch = self.translation_config.get("MAX_PER_BATCH", 40)
+
+        if len(texts) <= max_per_batch:
+            return self._translate_single_batch(texts)
+
+        # 拆分子批次
+        all_results = BatchTranslationResult()
+        all_results.total_count = len(texts)
+
+        for i in range(0, len(texts), max_per_batch):
+            sub_texts = texts[i:i + max_per_batch]
+            sub_result = self._translate_single_batch(sub_texts)
+            all_results.results.extend(sub_result.results)
+            all_results.success_count += sub_result.success_count
+            all_results.fail_count += sub_result.fail_count
+
+        return all_results
+
+    def _translate_single_batch(self, texts: List[str]) -> BatchTranslationResult:
+        """
+        单批次翻译（内部方法，不拆分）
 
         Args:
             texts: 要翻译的文本列表

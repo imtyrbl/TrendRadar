@@ -500,6 +500,9 @@ ai_translation:
     rss: true                       # 翻译 RSS 标题（true=翻译, false=不翻译）
     standalone: true                # 翻译独立展示区标题（true=翻译, false=不翻译）
 
+  max_per_batch: 40                 # 每批最多翻译条数，避免 max_tokens 截断
+                                    # 大批量时自动拆分子批次
+
 
 # ===============================================================
 # 11. 高级设置（一般无需修改）
