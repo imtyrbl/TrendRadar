@@ -41,6 +41,7 @@ from trendradar.notification import (
 )
 from trendradar.ai import AITranslator
 from trendradar.ai.filter import AIFilter, AIFilterResult
+from trendradar.core.dedup import dedup_similar_titles_flat
 from trendradar.storage import get_storage_manager
 
 
@@ -1118,6 +1119,13 @@ class AppContext:
         else:
             hotlist_stats.sort(key=lambda x: (-x["count"], x.get("position", 9999), x["word"]))
             rss_stats.sort(key=lambda x: (-x["count"], x.get("position", 9999), x["word"]))
+
+        # 标题相似度去重：同一条新闻只保留排名最高的
+        dedup_config = self.config.get("DEDUP", {})
+        if dedup_config.get("ENABLED", True):
+            threshold = dedup_config.get("SIMILARITY_THRESHOLD", 0.75)
+            hotlist_stats = dedup_similar_titles_flat(hotlist_stats, threshold=threshold)
+            rss_stats = dedup_similar_titles_flat(rss_stats, threshold=threshold)
 
         return hotlist_stats, rss_stats
 

@@ -24,6 +24,7 @@ from trendradar import __version__
 from trendradar.core import load_config, parse_multi_account_config, validate_paired_configs
 from trendradar.core.loader import resolve_ai_config
 from trendradar.core.analyzer import convert_keyword_stats_to_platform_stats
+from trendradar.core.dedup import dedup_similar_titles
 from trendradar.crawler import DataFetcher
 from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import DEFAULT_TIMEZONE, is_within_days, calculate_days_old
@@ -865,6 +866,12 @@ class NewsAnalyzer:
             )
 
         self._hotlist_total_count = total_titles
+
+        # 标题相似度去重：同一条新闻只保留排名最高的
+        dedup_config = self.ctx.config.get("DEDUP", {})
+        if dedup_config.get("ENABLED", True):
+            threshold = dedup_config.get("SIMILARITY_THRESHOLD", 0.75)
+            stats = dedup_similar_titles(stats, threshold=threshold)
 
         # 如果是 platform 模式，转换数据结构
         if self.ctx.display_mode == "platform" and stats:

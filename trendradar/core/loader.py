@@ -259,6 +259,14 @@ def _load_display_config(config_data: Dict) -> Dict:
     }
 
 
+def _load_dedup_config(config_data: Dict) -> Dict:
+    dedup = config_data.get("dedup", {})
+    return {
+        "ENABLED": dedup.get("enabled", True),
+        "SIMILARITY_THRESHOLD": dedup.get("similarity_threshold", 0.75),
+    }
+
+
 def _load_ai_config(config_data: Dict) -> Dict:
     """加载 AI 模型配置（LiteLLM 格式）"""
     ai_config = config_data.get("ai", {})
@@ -608,6 +616,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # 推送内容显示配置
     config["DISPLAY"] = _load_display_config(config_data)
+
+    # 标题去重配置
+    config["DEDUP"] = _load_dedup_config(config_data)
 
     # 存储配置
     config["STORAGE"] = _load_storage_config(config_data)
