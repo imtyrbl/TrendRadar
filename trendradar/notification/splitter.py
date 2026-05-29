@@ -305,6 +305,15 @@ def split_content_into_batches(
     else:
         base_header += "\n"
 
+    # 简化版头部（后续批次仅显示类型和时间）
+    simple_header = ""
+    simple_header += f"{b_s}类型：{b_e} {report_type}\n"
+    simple_header += f"{b_s}时间：{b_e} {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+    if format_type in ("feishu", "dingtalk"):
+        simple_header += "\n---\n\n"
+    else:
+        simple_header += "\n"
+
     base_footer = ""
     if format_type in ("wework", "bark"):
         base_footer = f"\n\n\n> 更新时间：{now.strftime('%Y-%m-%d %H:%M:%S')}"
@@ -406,9 +415,9 @@ def split_content_into_batches(
             current_batch_has_content = True
         else:
             if current_batch_has_content:
-                _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
             current_batch = _safe_new_batch(
-                base_header + stats_header, base_footer, max_bytes, base_header, batches
+                simple_header + stats_header, base_footer, max_bytes, simple_header, batches
             )
             current_batch_has_content = True
 
@@ -526,10 +535,10 @@ def split_content_into_batches(
                 >= max_bytes
             ):
                 if current_batch_has_content:
-                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
                 current_batch = _safe_new_batch(
-                    base_header + stats_header + word_with_first_news,
-                    base_footer, max_bytes, base_header, batches
+                    simple_header + stats_header + word_with_first_news,
+                    base_footer, max_bytes, simple_header, batches
                 )
                 current_batch_has_content = True
                 start_index = 1
@@ -578,10 +587,10 @@ def split_content_into_batches(
                     >= max_bytes
                 ):
                     if current_batch_has_content:
-                        _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                        _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
                     current_batch = _safe_new_batch(
-                        base_header + stats_header + word_header + news_line,
-                        base_footer, max_bytes, base_header, batches
+                        simple_header + stats_header + word_header + news_line,
+                        base_footer, max_bytes, simple_header, batches
                     )
                     current_batch_has_content = True
                 else:
@@ -658,9 +667,9 @@ def split_content_into_batches(
             >= max_bytes
         ):
             if current_batch_has_content:
-                _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
             current_batch = _safe_new_batch(
-                base_header + new_header, base_footer, max_bytes, base_header, batches
+                simple_header + new_header, base_footer, max_bytes, simple_header, batches
             )
             current_batch_has_content = True
         else:
@@ -724,10 +733,10 @@ def split_content_into_batches(
                 >= max_bytes
             ):
                 if current_batch_has_content:
-                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
                 current_batch = _safe_new_batch(
-                    base_header + new_header + source_with_first_news,
-                    base_footer, max_bytes, base_header, batches
+                    simple_header + new_header + source_with_first_news,
+                    base_footer, max_bytes, simple_header, batches
                 )
                 current_batch_has_content = True
                 start_index = 1
@@ -773,10 +782,10 @@ def split_content_into_batches(
                     >= max_bytes
                 ):
                     if current_batch_has_content:
-                        _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                        _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
                     current_batch = _safe_new_batch(
-                        base_header + new_header + source_header + news_line,
-                        base_footer, max_bytes, base_header, batches
+                        simple_header + new_header + source_header + news_line,
+                        base_footer, max_bytes, simple_header, batches
                     )
                     current_batch_has_content = True
                 else:
@@ -818,23 +827,23 @@ def split_content_into_batches(
             current_batch_has_content = True
         else:
             if current_batch_has_content:
-                _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
 
             # AI 内容可能很长，按行拆分成多个批次
             footer_size = len(base_footer.encode("utf-8"))
-            header_size = len(base_header.encode("utf-8"))
+            header_size = len(simple_header.encode("utf-8"))
             available = max_bytes - footer_size - header_size
 
             ai_lines = ai_content.split("\n")
-            current_batch = base_header
+            current_batch = simple_header
             current_batch_has_content = False
 
             for line in ai_lines:
                 test_line = line + "\n" if not line.endswith("\n") else line
                 test_content = current_batch + test_line
                 if len(test_content.encode("utf-8")) + footer_size >= max_bytes and current_batch_has_content:
-                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
-                    current_batch = base_header + test_line
+                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
+                    current_batch = simple_header + test_line
                 else:
                     current_batch = test_content
                 current_batch_has_content = True
@@ -847,7 +856,7 @@ def split_content_into_batches(
         if not standalone_data:
             return current_batch, current_batch_has_content, batches
         return _process_standalone_section(
-            standalone_data, format_type, feishu_separator, base_header, base_footer,
+            standalone_data, format_type, feishu_separator, simple_header, base_footer,
             max_bytes, current_batch, current_batch_has_content, batches, timezone,
             rank_threshold, add_separator
         )
@@ -858,7 +867,7 @@ def split_content_into_batches(
         if not rss_items:
             return current_batch, current_batch_has_content, batches
         return _process_rss_stats_section(
-            rss_items, format_type, feishu_separator, base_header, base_footer,
+            rss_items, format_type, feishu_separator, simple_header, base_footer,
             max_bytes, current_batch, current_batch_has_content, batches, timezone,
             add_separator
         )
@@ -869,7 +878,7 @@ def split_content_into_batches(
         if not rss_new_items:
             return current_batch, current_batch_has_content, batches
         return _process_rss_new_titles_section(
-            rss_new_items, format_type, feishu_separator, base_header, base_footer,
+            rss_new_items, format_type, feishu_separator, simple_header, base_footer,
             max_bytes, current_batch, current_batch_has_content, batches, timezone,
             add_separator
         )
@@ -952,9 +961,9 @@ def split_content_into_batches(
             >= max_bytes
         ):
             if current_batch_has_content:
-                _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
             current_batch = _safe_new_batch(
-                base_header + failed_header, base_footer, max_bytes, base_header, batches
+                simple_header + failed_header, base_footer, max_bytes, simple_header, batches
             )
             current_batch_has_content = True
         else:
@@ -975,10 +984,10 @@ def split_content_into_batches(
                 >= max_bytes
             ):
                 if current_batch_has_content:
-                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+                    _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
                 current_batch = _safe_new_batch(
-                    base_header + failed_header + failed_line,
-                    base_footer, max_bytes, base_header, batches
+                    simple_header + failed_header + failed_line,
+                    base_footer, max_bytes, simple_header, batches
                 )
                 current_batch_has_content = True
             else:
@@ -987,7 +996,7 @@ def split_content_into_batches(
 
     # 完成最后批次
     if current_batch_has_content:
-        _safe_append_batch(batches, current_batch, base_footer, max_bytes, base_header)
+        _safe_append_batch(batches, current_batch, base_footer, max_bytes, simple_header)
 
     return batches
 
