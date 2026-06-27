@@ -187,8 +187,34 @@ jobs:
             echo "ℹ️ 未配置 Cloudflare Secrets，跳过 Cloudflare Pages 部署"
           fi
 
-      - name: Prepare Cloudflare Pages assets
+      - name: Check Cloudflare deploy time window
         if: success() && steps.cf_check.outputs.enabled == 'true'
+        id: cf_time_check
+        env:
+          # Cloudflare Pages 部署时间窗口（北京时间）
+          # 格式：开始小时-结束小时，例如 "21-22" 表示 21:00-22:00
+          # 可任意指定，如 "20-23"、"7-9"；不设置则默认 21-22
+          CLOUDFLARE_DEPLOY_WINDOW: ${{ secrets.CLOUDFLARE_DEPLOY_WINDOW }}
+        run: |
+          # GitHub Actions 默认使用 UTC，加 8 小时换算为北京时间
+          utc_hour=$(date -u +%H)
+          hour=$(( (utc_hour + 8) % 24 ))
+
+          # 读取部署窗口，默认 21-22（北京时间）
+          window=${CLOUDFLARE_DEPLOY_WINDOW:-21-22}
+          start_hour=$(echo "$window" | cut -d'-' -f1)
+          end_hour=$(echo "$window" | cut -d'-' -f2)
+
+          if [ "$hour" -ge "$start_hour" ] && [ "$hour" -lt "$end_hour" ]; then
+            echo "within_window=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 当前在 Cloudflare 部署窗口（${start_hour}:00-${end_hour}:00 北京时间）"
+          else
+            echo "within_window=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ 当前不在 Cloudflare 部署窗口（${start_hour}:00-${end_hour}:00 北京时间），跳过 Cloudflare Pages 部署"
+          fi
+
+      - name: Prepare Cloudflare Pages assets
+        if: success() && steps.cf_check.outputs.enabled == 'true' && steps.cf_time_check.outputs.within_window == 'true'
         run: |
           if [ ! -f index.html ]; then
             echo "❌ 未找到 index.html，请确认爬虫已生成网页报告"
@@ -196,10 +222,15 @@ jobs:
           fi
           rm -rf cloudflare_dist
           mkdir -p cloudflare_dist
+          # 当前入口
           cp index.html cloudflare_dist/index.html
+          # 历史快照（与 GitHub Pages 保持一致，每天保留一份）
+          if [ -d output/html ]; then
+            cp -r output/html cloudflare_dist/html
+          fi
 
       - name: Deploy to Cloudflare Pages
-        if: success() && steps.cf_check.outputs.enabled == 'true'
+        if: success() && steps.cf_check.outputs.enabled == 'true' && steps.cf_time_check.outputs.within_window == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

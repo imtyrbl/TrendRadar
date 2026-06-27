@@ -139,11 +139,11 @@ class AppContext:
 
         regions = self.config.get("DISPLAY", {}).get("REGIONS", {})
         region_switches = {
-            "hotlist": regions.get("hotlist", True),
-            "rss": regions.get("rss", True),
-            "new_items": regions.get("new_items", True),
-            "standalone": regions.get("standalone", False),
-            "ai_analysis": regions.get("ai_analysis", True),
+            "hotlist": regions.get("HOTLIST", True),
+            "rss": regions.get("RSS", True),
+            "new_items": regions.get("NEW_ITEMS", True),
+            "standalone": regions.get("STANDALONE", False),
+            "ai_analysis": regions.get("AI_ANALYSIS", True),
         }
 
         # 只保留开启的区域，同时保持配置顺序
