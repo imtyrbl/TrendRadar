@@ -133,9 +133,21 @@ class AppContext:
 
     @property
     def region_order(self) -> List[str]:
-        """获取区域显示顺序"""
+        """获取区域显示顺序，并根据 regions 开关过滤隐藏区域"""
         default_order = ["hotlist", "rss", "new_items", "standalone", "ai_analysis"]
-        return self.config.get("DISPLAY", {}).get("REGION_ORDER", default_order)
+        order = self.config.get("DISPLAY", {}).get("REGION_ORDER", default_order)
+
+        regions = self.config.get("DISPLAY", {}).get("REGIONS", {})
+        region_switches = {
+            "hotlist": regions.get("hotlist", True),
+            "rss": regions.get("rss", True),
+            "new_items": regions.get("new_items", True),
+            "standalone": regions.get("standalone", False),
+            "ai_analysis": regions.get("ai_analysis", True),
+        }
+
+        # 只保留开启的区域，同时保持配置顺序
+        return [r for r in order if region_switches.get(r, True)]
 
     @property
     def filter_method(self) -> str:
