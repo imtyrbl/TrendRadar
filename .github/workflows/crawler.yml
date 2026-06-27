@@ -148,6 +148,9 @@ jobs:
           GITHUB_ACTIONS: true
         run: uv run python -m trendradar
 
+      # --------------------------------------------------------------------------------
+      # 📄 GITHUB PAGES DEPLOY / 部署到 GitHub Pages
+      # --------------------------------------------------------------------------------
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
@@ -156,3 +159,48 @@ jobs:
           publish_branch: gh-pages
           commit_message: "Deploy HTML report - ${{ github.event.head_commit.message }}"
           allow_empty_commit: true
+
+      # --------------------------------------------------------------------------------
+      # ☁️ CLOUDFLARE PAGES DEPLOY / 部署到 Cloudflare Pages（可选）
+      # --------------------------------------------------------------------------------
+      # 将爬虫生成的 index.html 自动部署到 Cloudflare Pages，国内访问比 GitHub Pages 更快。
+      # 仅当下面三个 Secrets 均已配置时才会执行，缺任意一个则自动跳过，不影响其它流程：
+      #   - CLOUDFLARE_API_TOKEN     权限：Account → Cloudflare Pages → Edit
+      #   - CLOUDFLARE_ACCOUNT_ID    Cloudflare 账户 ID
+      #   - CLOUDFLARE_PROJECT_NAME  Cloudflare Pages 项目名（需提前在 Dashboard 创建）
+      # 配置教程详见 README「自动部署到 Cloudflare Pages」章节。
+      # --------------------------------------------------------------------------------
+      - name: Check Cloudflare config
+        if: success()
+        id: cf_check
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PROJECT_NAME: ${{ secrets.CLOUDFLARE_PROJECT_NAME }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ] && [ -n "$CLOUDFLARE_PROJECT_NAME" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "✅ 检测到 Cloudflare 配置，准备部署到 Cloudflare Pages"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "ℹ️ 未配置 Cloudflare Secrets，跳过 Cloudflare Pages 部署"
+          fi
+
+      - name: Prepare Cloudflare Pages assets
+        if: success() && steps.cf_check.outputs.enabled == 'true'
+        run: |
+          if [ ! -f index.html ]; then
+            echo "❌ 未找到 index.html，请确认爬虫已生成网页报告"
+            exit 1
+          fi
+          rm -rf cloudflare_dist
+          mkdir -p cloudflare_dist
+          cp index.html cloudflare_dist/index.html
+
+      - name: Deploy to Cloudflare Pages
+        if: success() && steps.cf_check.outputs.enabled == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy cloudflare_dist --project-name=${{ secrets.CLOUDFLARE_PROJECT_NAME }}
