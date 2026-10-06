@@ -157,6 +157,13 @@ class AIFilterPipeline:
         # 8. 查询并组装返回结果
         all_results = self.storage.get_active_ai_filter_results(interests_file=effective_interests_file)
 
+        # 整轮全失败（有待分类新闻、但一批都没成功、库里也没有任何结果）→ 判定渠道不可用，
+        # 返回失败让上层回退到关键词匹配。部分批次失败不回退：已成功的结果照常保留，
+        # 失败批次下次运行重试；库里已有当天结果时也不回退，避免把好结果降级成关键词结果。
+        if total_pending > 0 and not succeeded_news_ids and not succeeded_rss_ids and not all_results:
+            print(f"[AI筛选] {total_pending} 条新闻全部分类失败且无历史结果，回退到关键词匹配")
+            return AIFilterResult(success=False, error="全部分类批次失败")
+
         if self._debug:
             print(f"[AI筛选][DEBUG] === 最终汇总 ===")
             print(f"[AI筛选][DEBUG] 数据库 active 分类结果: {len(all_results)} 条")
