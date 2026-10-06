@@ -95,11 +95,19 @@ class SQLiteStorageMixin:
             if ai_filter_schema.exists():
                 with open(ai_filter_schema, "r", encoding="utf-8") as f:
                     conn.executescript(f.read())
+            self._migrate_ai_filter_schema(conn)
 
         if db_type == "rss":
             self._migrate_rss_schema(conn)
 
         conn.commit()
+
+    def _migrate_ai_filter_schema(self, conn: sqlite3.Connection) -> None:
+        """迁移 ai_filter_results 表结构（为已有数据库添加 push_score 列）"""
+        cursor = conn.execute("PRAGMA table_info(ai_filter_results)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if columns and "push_score" not in columns:
+            conn.execute("ALTER TABLE ai_filter_results ADD COLUMN push_score REAL DEFAULT NULL")
 
     def _migrate_rss_schema(self, conn: sqlite3.Connection) -> None:
         """迁移 rss_items 表结构（为已有数据库添加 guid 列）"""
@@ -1559,13 +1567,14 @@ class SQLiteStorageMixin:
                 try:
                     cursor.execute("""
                         INSERT INTO ai_filter_results
-                        (news_item_id, source_type, tag_id, relevance_score, created_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        (news_item_id, source_type, tag_id, relevance_score, push_score, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
                     """, (
                         r["news_item_id"],
                         r.get("source_type", "hotlist"),
                         r["tag_id"],
                         r.get("relevance_score", 0.0),
+                        r.get("push_score"),
                         now_str,
                     ))
                     count += 1
@@ -1591,7 +1600,8 @@ class SQLiteStorageMixin:
                     t.tag, t.description as tag_description, t.priority,
                     n.title, n.platform_id as source_id, p.name as source_name,
                     n.url, n.mobile_url, n.rank,
-                    n.first_crawl_time, n.last_crawl_time, n.crawl_count
+                    n.first_crawl_time, n.last_crawl_time, n.crawl_count,
+                    r.push_score
                 FROM ai_filter_results r
                 JOIN ai_filter_tags t ON r.tag_id = t.id
                 JOIN news_items n ON r.news_item_id = n.id
@@ -1614,6 +1624,7 @@ class SQLiteStorageMixin:
                     "rank": row[12],
                     "first_time": row[13], "last_time": row[14],
                     "count": row[15],
+                    "push_score": row[16],
                 })
                 hotlist_news_ids.append(row[0])
 
@@ -1662,7 +1673,8 @@ class SQLiteStorageMixin:
                 # 从 news 库获取 rss 类型的分类结果 ID
                 cursor.execute("""
                     SELECT r.news_item_id, r.tag_id, r.relevance_score,
-                           t.tag, t.description, t.priority
+                           t.tag, t.description, t.priority,
+                           r.push_score
                     FROM ai_filter_results r
                     JOIN ai_filter_tags t ON r.tag_id = t.id
                     WHERE r.status = 'active' AND r.source_type = 'rss'
@@ -1706,6 +1718,7 @@ class SQLiteStorageMixin:
                                 "first_time": info[5] or "",
                                 "last_time": info[5] or "",
                                 "count": 1,
+                                "push_score": fr_row[6],
                             })
             except Exception:
                 pass  # RSS 库不存在时静默跳过

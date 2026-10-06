@@ -206,11 +206,45 @@ filter:
 # 4.6 AI 智能筛选配置（仅 filter.method=ai 时生效）
 # ===============================================================
 ai_filter:
-  batch_size: 200                         # 每批发送给 AI 的标题数，超过此数量自动分批
+  provider: "chat"                        # 分类通道（阶段B 新闻分类用哪个模型）
+                                          # chat = 走下方 ai_filter_model 的 LLM（默认，行为不变）
+                                          # jev  = 走 Jev 决策模型（TypeSafe System One），
+                                          #        快约 10 倍，且能额外给出「是否值得推送」维度
+                                          # 环境变量 AI_FILTER_PROVIDER 优先于这里：
+                                          # 填 jev 才走 Jev，未配置或填其它值一律走 chat
+                                          # ⚠️ 阶段A（标签提取/更新）需要生成文本，Jev 做不了，
+                                          #    即使 provider=jev 也仍走 ai_filter_model
+
+  batch_size: 50                          # 每批发送给 AI 的标题数，超过此数量自动分批
+                                          # ⚠️ 仅 provider=chat 生效（jev 按 token 动态分批）
+                                          # 实测单批 25 条约 72 秒、30 条约 106 秒，
+                                          # 设为 200 会超过下方 ai_filter_model.timeout
+
   batch_interval: 2                       # 分批间隔（秒），避免触发 API 限流，0=不等待
 
-  min_score: 0.7                          # 推送最低分数阈值（0.0~1.0），值越高越严格
+  min_score: 0.7                          # 【chat 通道】推送最低分数阈值（0.0~1.0），值越高越严格
                                           # 推荐 0.5~0.7 起步，0=不过滤
+                                          # jev 通道不用这个值，见下方 jev.min_score
+
+  # Jev 决策模型配置（仅 provider=jev 时使用）
+  # 支持的环境变量（优先于这里）：AI_FILTER_JEV_MODEL / AI_FILTER_JEV_API_KEY / AI_FILTER_JEV_API_BASE
+  jev:
+    model: "jev-latest"                   # 模型名原样发在请求体里，不需要 openai/ 前缀
+                                          # （openai/ 是 LiteLLM 的约定，Jev 不走 LiteLLM）
+    api_key: ""                           # 建议用环境变量或 GitHub Secrets，不要写进仓库
+    api_base: ""                          # Jev 接口地址，填域名即可，会自动补全：
+                                          # https://host → https://host/v1/systemone
+                                          # https://host/v1 → https://host/v1/systemone
+    timeout: 300
+    max_items_per_batch: 15               # 每批新闻条数上限（token 超限会自动再缩批）
+                                          # 官方硬限制：state + 全部问题 ≤ 64k token
+
+    min_score: 0                          # 【jev 通道】相关度阈值，与上方 chat 的 min_score 分开
+                                          # Jev 的 relevance_score 是 choice 在 N 个标签中选一个的
+                                          # 置信度，与 chat 模型自报的相关度不是同一量纲，
+                                          # 0.7 会误砍大量结果，建议保持 0，改由 min_push_score 把关
+    min_push_score: 0.5                   # 【jev 通道】「是否值得推送」最低阈值（0.0~1.0），0=不过滤
+                                          # 实测 100 条样本：0.5 是自然分界，保留约三成
 
   # 兴趣描述文件（默认 config/ai_interests.txt，无需配置）
   # 自定义文件放入 config/custom/ai/ 目录，然后指定文件名：
@@ -476,7 +510,9 @@ ai_filter_model:
   model: ""
   api_key: ""
   api_base: ""
-  timeout: 120
+  timeout: 300                      # 分类是高频批量调用，单批耗时随条数线性增长
+                                    # （实测 25 条约 72 秒、30 条约 106 秒），
+                                    # 120 秒在批次偏大时必然超时，超时的那批新闻本次全部不推送
   max_tokens: 5000
 
 # ===============================================================

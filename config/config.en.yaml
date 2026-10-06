@@ -191,11 +191,44 @@ filter:
 # 4.6 AI Smart Filter (only effective when filter.method=ai)
 # ===============================================================
 ai_filter:
-  batch_size: 200                         # Titles sent to the AI per batch; auto-batched beyond this
+  provider: "chat"                        # Classification channel for stage B (news classification)
+                                          # chat = use the ai_filter_model LLM below (default, unchanged)
+                                          # jev  = use the Jev decision model (TypeSafe System One),
+                                          #        ~10x faster and adds an "is it worth pushing" dimension
+                                          # Env var AI_FILTER_PROVIDER wins over this value:
+                                          # only "jev" switches channels; anything else stays on chat
+                                          # NOTE: stage A (tag extraction/update) needs text generation,
+                                          #       which Jev cannot do, so it always uses ai_filter_model
+
+  batch_size: 50                          # Titles sent to the AI per batch; auto-batched beyond this
+                                          # NOTE: only used when provider=chat (jev batches by token)
+                                          # Measured: ~72s for 25 titles, ~106s for 30 titles;
+                                          # 200 would exceed ai_filter_model.timeout
+
   batch_interval: 2                       # Batch interval (seconds) to avoid API rate limits; 0=no wait
 
-  min_score: 0.7                          # Min push-score threshold (0.0~1.0); higher is stricter
+  min_score: 0.7                          # [chat channel] Min relevance threshold (0.0~1.0); higher is stricter
                                           # Recommend starting at 0.5~0.7; 0=no filtering
+                                          # The jev channel does not use this; see jev.min_score below
+
+  # Jev decision model (only used when provider=jev)
+  # Env vars (take priority): AI_FILTER_JEV_MODEL / AI_FILTER_JEV_API_KEY / AI_FILTER_JEV_API_BASE
+  jev:
+    model: "jev-latest"                   # Sent as-is in the request body; no openai/ prefix
+                                          # (that prefix is a LiteLLM convention; Jev bypasses LiteLLM)
+    api_key: ""                           # Use env vars or GitHub Secrets; never commit it
+    api_base: ""                          # Jev endpoint; the host alone is enough, it is completed to
+                                          # https://host/v1/systemone automatically
+    timeout: 300
+    max_items_per_batch: 15               # Max titles per batch (auto-shrinks further on token limit)
+                                          # Hard limit: state + all questions ≤ 64k tokens
+
+    min_score: 0                          # [jev channel] Relevance threshold, separate from chat's min_score
+                                          # Jev's relevance_score is the choice confidence among N tags, a
+                                          # different scale from the chat model's self-reported relevance;
+                                          # 0.7 would over-filter, so keep 0 and gate on min_push_score
+    min_push_score: 0.5                   # [jev channel] Min "worth pushing" threshold (0.0~1.0); 0=off
+                                          # Measured on 100 titles: 0.5 is the natural cut, keeps ~30%
 
   # Interest description file (defaults to config/ai_interests.txt; no need to configure)
   # Put custom files in config/custom/ai/ and specify the name:

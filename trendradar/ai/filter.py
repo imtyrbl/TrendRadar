@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from trendradar.ai.client import AIClient
+from trendradar.ai.jev_client import JevClient, split_into_batches
 from trendradar.ai.prompt_loader import load_prompt_template
+
+# Jev choice 的「都不匹配」选项键，与标签 id 不会冲突
+JEV_NO_MATCH = "__none__"
 
 
 @dataclass
@@ -25,7 +29,7 @@ class AIFilterResult:
     #     {"title": str, "source_id": str, "source_name": str,
     #      "url": str, "mobile_url": str, "rank": int, "ranks": [...],
     #      "first_time": str, "last_time": str, "count": int,
-    #      "relevance_score": float, "source_type": str}
+    #      "relevance_score": float, "push_score": float, "source_type": str}
     # ]}]
     total_matched: int = 0       # 匹配新闻总数
     total_processed: int = 0     # 处理新闻总数
@@ -66,6 +70,28 @@ class AIFilter:
         self.batch_size = filter_config.get("BATCH_SIZE", 200)
         self.get_time_func = get_time_func
         self.debug = debug
+
+        # 分类通道：chat（默认，走 LiteLLM）/ jev（决策模型，走直连）
+        # 仅阶段 B 分类可切换；阶段 A 的标签提取/更新需要生成文本，Jev 做不了，仍走 chat
+        self.provider = str(filter_config.get("PROVIDER", "chat")).lower()
+        self.jev_client = None
+        self.jev_max_items = filter_config.get("JEV_MAX_ITEMS_PER_BATCH", 15)
+        if self.provider == "jev":
+            self.jev_client = JevClient({
+                "MODEL": filter_config.get("JEV_MODEL", "jev-latest"),
+                "API_KEY": filter_config.get("JEV_API_KEY", ""),
+                "API_BASE": filter_config.get("JEV_API_BASE", ""),
+                "TIMEOUT": filter_config.get("JEV_TIMEOUT", 300),
+            })
+            ok, err = self.jev_client.validate_config()
+            if not ok:
+                print(f"[AI筛选] Jev 配置不完整: {err}")
+
+        if self.provider == "jev":
+            print(f"[AI筛选] 分类通道: jev（{self.jev_client.model}，每批上限 {self.jev_max_items} 条）")
+            print(f"[AI筛选]   阶段A标签提取/更新仍走上方模型")
+        else:
+            print(f"[AI筛选] 分类通道: chat")
 
         # 加载提示词模板
         self.classify_system, self.classify_user = load_prompt_template(
@@ -332,7 +358,7 @@ class AIFilter:
         interests_content: str = "",
     ) -> Optional[List[Dict]]:
         """
-        阶段 B：对一批新闻标题做分类
+        阶段 B：对一批新闻标题做分类（按 provider 分派到 chat / jev 通道）
 
         Args:
             titles: [{"id": news_item_id, "title": str, "source": str}]
@@ -340,12 +366,30 @@ class AIFilter:
             interests_content: 用户的兴趣描述（含质量过滤要求）
 
         Returns:
-            成功返回 [{"news_item_id": int, "tag_id": int, "relevance_score": float}, ...]（无匹配时为空列表）；
-            调用失败返回 None（用于区分"无匹配"与"调用失败"，失败批次不标记已分析以便下次重试）
+            成功返回 [{"news_item_id": int, "tag_id": int, "relevance_score": float, "push_score": float}, ...]
+            （无匹配时为空列表）；调用或解析失败返回 None（失败批次不标记已分析以便下次重试）
         """
         if not titles or not tags:
             return []
 
+        if self.provider == "jev":
+            return self._classify_batch_jev(titles, tags, interests_content)
+
+        return self._classify_batch_chat(titles, tags, interests_content)
+
+    def _classify_batch_chat(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str = "",
+    ) -> Optional[List[Dict]]:
+        """
+        阶段 B（chat 通道）：把标签与新闻列表交给 LLM，返回 JSON 分类结果
+
+        Returns:
+            成功返回 [{"news_item_id": int, "tag_id": int, "relevance_score": float}, ...]（无匹配时为空列表）；
+            调用失败返回 None（用于区分"无匹配"与"调用失败"，失败批次不标记已分析以便下次重试）
+        """
         if not self.classify_user:
             print("[AI筛选] 分类提示词模板为空")
             return None
@@ -406,7 +450,7 @@ class AIFilter:
         response: str,
         titles: List[Dict],
         tags: List[Dict],
-    ) -> List[Dict]:
+    ) -> Optional[List[Dict]]:
         """解析分类的 AI 响应
 
         支持两种 JSON 格式：
@@ -414,12 +458,16 @@ class AIFilter:
         - 旧格式（嵌套）: [{"id": 1, "tags": [{"tag_id": 1, "score": 0.9}]}, ...]
 
         每条新闻只保留一个最高分的 tag，杜绝同一条出现在多个标签下。
+
+        解析失败返回 None（而非空列表）：空列表表示「本批确实无匹配」，
+        若把解析失败也当作无匹配，这批新闻会被标记为已分析且永不重试。
         """
         json_str = self._extract_json(response)
         if not json_str:
             if self.debug:
                 print(f"[AI筛选][DEBUG] 无法从分类响应中提取 JSON，原始响应前 500 字符: {(response or '')[:500]}")
-            return []
+            print("[AI筛选] 分类响应中未找到 JSON，判定为解析失败")
+            return None
 
         try:
             data = json.loads(json_str)
@@ -427,12 +475,14 @@ class AIFilter:
             if self.debug:
                 print(f"[AI筛选][DEBUG] 分类响应 JSON 解析失败: {e}")
                 print(f"[AI筛选][DEBUG] 提取的 JSON 文本前 500 字符: {json_str[:500]}")
-            return []
+            print(f"[AI筛选] 分类响应 JSON 解析失败: {e}，判定为解析失败")
+            return None
 
         if not isinstance(data, list):
             if self.debug:
                 print(f"[AI筛选][DEBUG] 分类响应顶层不是数组，实际类型: {type(data).__name__}")
-            return []
+            print(f"[AI筛选] 分类响应顶层不是数组（{type(data).__name__}），判定为解析失败")
+            return None
 
         # 构建 id 映射
         title_ids = {t["id"] for t in titles}
@@ -537,6 +587,190 @@ class AIFilter:
 
         return results
 
+    # ========================================
+    # Jev 通道（阶段 B 专用）
+    # ========================================
+
+    def plan_batches(self, titles: List[Dict], tags: List[Dict], interests_content: str = "") -> List[List[Dict]]:
+        """
+        按当前通道的分批策略切分新闻列表
+
+        chat 通道按条数（batch_size）切；jev 通道必须按 token 估算动态切，
+        因为官方限制是 state + 全部问题 ≤ 64k token，随标签数量变化。
+        """
+        if self.provider == "jev":
+            return split_into_batches(
+                titles,
+                build_state=self._jev_build_state,
+                build_questions=lambda batch: self._jev_build_questions(batch, tags, interests_content),
+                max_items=self.jev_max_items,
+            )
+
+        batch_size = self.batch_size
+        return [titles[i:i + batch_size] for i in range(0, len(titles), batch_size)]
+
+    def _classify_batch_jev(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str = "",
+    ) -> Optional[List[Dict]]:
+        """
+        阶段 B（jev 通道）：每条新闻两个问题 —— choice 选标签 + noul 判是否值得推送
+
+        「相关」与「值得推送」拆成两个独立维度，是选用 Jev 的主要理由：
+        标题相关度很高但属于标题党/营销软文时，可以只压低 push_score 而不影响 tag 归类。
+
+        Returns:
+            成功返回 [{"news_item_id", "tag_id", "relevance_score", "push_score"}, ...]；
+            调用或解析失败返回 None
+        """
+        if not self.jev_client:
+            return None
+
+        state = self._jev_build_state(titles)
+        questions = self._jev_build_questions(titles, tags, interests_content)
+
+        if self.debug:
+            print(f"[AI筛选][DEBUG] === Jev 请求 (标题数={len(titles)}, 标签={len(tags)}, 问题={len(questions)}) ===")
+            print(f"[AI筛选][DEBUG] state 前 500 字符:\n{state[:500]}")
+
+        try:
+            response = self.jev_client.decide(state, questions)
+        except Exception as e:
+            print(f"[AI筛选] Jev 分类请求失败: {type(e).__name__}: {e}")
+            return None
+
+        return self._parse_jev_response(response, titles, tags)
+
+    def _jev_build_state(self, titles: List[Dict]) -> str:
+        """构造 Jev 的共享上下文：只有新闻列表
+
+        实测（100 条样本）：把兴趣描述原文也塞进 state 会让 choice 漂移 26%，
+        且不改善 push 判断，因此 state 只放新闻列表。
+        """
+        return "\n".join(
+            f"新闻{t['id']}：[{t.get('source', '')}] {t['title']}"
+            for t in titles
+        )
+
+    def _jev_build_questions(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str = "",
+    ) -> Dict[str, Dict]:
+        """构造 Jev 的问题集：每条新闻一个 choice（选标签）+ 一个 noul（判推送）"""
+        criteria = {str(t["id"]): f"{t['tag']}：{t.get('description', '')}" for t in tags}
+        criteria[JEV_NO_MATCH] = "以上方向都不匹配"
+
+        push_rule = self._jev_push_rule(interests_content, tags)
+
+        questions = {}
+        for t in titles:
+            news_id = t["id"]
+            questions[f"n{news_id}"] = {
+                "type": "choice",
+                "instructions": (
+                    f"『新闻{news_id}』这条标题最符合哪个分类方向？"
+                    f"只根据标题判断，都不符合就选 {JEV_NO_MATCH}。"
+                ),
+                "criteria": criteria,
+            }
+            questions[f"push{news_id}"] = {
+                "type": "noul",
+                "instructions": (
+                    f"{push_rule}"
+                    f"『新闻{news_id}』这条标题是否值得推送给该用户？"
+                ),
+            }
+        return questions
+
+    def _jev_push_rule(self, interests_content: str, tags: List[Dict]) -> str:
+        """构造 push 判据：标签名列表 + 兴趣描述里的标题质量要求
+
+        判据必须内联在问题里，不能让模型去 state 里找 —— 实测那样会把 push 分数
+        压向中间值，真阳性和噪声分不开。判据宽度是 push 分数的唯一主导变量。
+        """
+        rule = f"用户关注：{'、'.join(t['tag'] for t in tags)}。"
+        quality_rules = self._extract_quality_rules(interests_content)
+        if quality_rules:
+            rule += f"质量要求：{quality_rules}。"
+        return rule
+
+    @staticmethod
+    def _extract_quality_rules(interests_content: str) -> str:
+        """从兴趣描述中抽取「标题质量要求」段落的列表项，抽不到返回空串"""
+        rules = []
+        in_section = False
+        for line in interests_content.splitlines():
+            stripped = line.strip()
+            if "标题质量要求" in stripped:
+                in_section = True
+                continue
+            if not in_section:
+                continue
+            if stripped.startswith("-"):
+                rules.append(stripped.lstrip("- ").strip())
+            elif stripped and not stripped.startswith("#"):
+                break
+        return "；".join(rules)
+
+    def _parse_jev_response(
+        self,
+        response: Any,
+        titles: List[Dict],
+        tags: List[Dict],
+    ) -> Optional[List[Dict]]:
+        """解析 Jev 响应
+
+        缺答案一律按批次失败处理（返回 None）：缺答案无法区分「模型漏答」与
+        「确实无匹配」，若当作无匹配返回，这批新闻会被永久标记为已分析且不再重试。
+        """
+        answers = response.get("answers") if isinstance(response, dict) else None
+        if not isinstance(answers, dict):
+            print("[AI筛选] Jev 响应缺少 answers 字段，判定为失败")
+            return None
+
+        expected = []
+        for t in titles:
+            expected.extend([f"n{t['id']}", f"push{t['id']}"])
+        missing = [key for key in expected if key not in answers]
+        if missing:
+            print(f"[AI筛选] Jev 响应缺少 {len(missing)}/{len(expected)} 个答案"
+                  f"（如 {missing[:3]}），判定为失败")
+            return None
+
+        valid_tag_ids = {str(t["id"]) for t in tags}
+        results = []
+        for t in titles:
+            news_id = t["id"]
+            choice_answer = answers.get(f"n{news_id}") or {}
+            push_answer = answers.get(f"push{news_id}") or {}
+
+            choice = choice_answer.get("choice")
+            if choice is None or choice == JEV_NO_MATCH:
+                continue
+            if choice not in valid_tag_ids:
+                print(f"[AI筛选] Jev 返回未知标签键 {choice}，跳过新闻 {news_id}")
+                continue
+
+            results.append({
+                "news_item_id": news_id,
+                "tag_id": int(choice),
+                "relevance_score": _clamp_score(choice_answer.get("confidence")),
+                "push_score": _clamp_score(push_answer.get("noul")),
+            })
+
+        if self.debug:
+            print(f"[AI筛选][DEBUG] --- Jev 解析结果 ---")
+            print(f"[AI筛选][DEBUG] {len(titles)} 条 → {len(results)} 条匹配")
+            for r in results:
+                print(f"[AI筛选][DEBUG]   [{r['news_item_id']}] tag={r['tag_id']} "
+                      f"相关度={r['relevance_score']:.2f} push={r['push_score']:.2f}")
+
+        return results
+
     def _extract_json(self, response: str) -> Optional[str]:
         """从 AI 响应中提取 JSON 字符串"""
         if not response or not response.strip():
@@ -580,3 +814,11 @@ class AIFilter:
 
         # JSON 解析失败，直接打印原始响应
         print(response)
+
+
+def _clamp_score(value: Any, default: float = 0.0) -> float:
+    """把 Jev 返回的分数夹到 0~1，非法值退回 default"""
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default

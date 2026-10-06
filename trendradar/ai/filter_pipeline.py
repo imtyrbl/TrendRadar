@@ -315,18 +315,16 @@ class AIFilterPipeline:
             print(f"[AI筛选] RSS: 总计 {rss_total} 条{freshness_info}, 已分析跳过 {rss_skipped} 条, 本次发送AI分析 {rss_pending} 条")
 
     def _classify_batches(self, ai_filter, pending_news, pending_rss, active_tags, interests_content, filter_config):
-        batch_size = filter_config.get("BATCH_SIZE", 200)
         batch_interval = filter_config.get("BATCH_INTERVAL", 5)
         total_results = []
         batch_count = 0
 
         succeeded_news_ids = []
-        for i in range(0, len(pending_news), batch_size):
+        for batch_no, batch in enumerate(ai_filter.plan_batches(pending_news, active_tags, interests_content), start=1):
             if batch_count > 0 and batch_interval > 0:
                 import time
                 print(f"[AI筛选] 批次间隔等待 {batch_interval} 秒...")
                 time.sleep(batch_interval)
-            batch = pending_news[i:i + batch_size]
             titles_for_ai = [
                 {"id": n["id"], "title": n["title"], "source": n.get("source_name", "")}
                 for n in batch
@@ -334,21 +332,20 @@ class AIFilterPipeline:
             batch_results = ai_filter.classify_batch(titles_for_ai, active_tags, interests_content)
             batch_count += 1
             if batch_results is None:
-                print(f"[AI筛选] 热榜批次 {i // batch_size + 1}: {len(batch)} 条 → 分类失败，将在下次运行重试")
+                print(f"[AI筛选] 热榜批次 {batch_no}: {len(batch)} 条 → 分类失败，将在下次运行重试")
                 continue
             for r in batch_results:
                 r["source_type"] = "hotlist"
             total_results.extend(batch_results)
             succeeded_news_ids.extend(n["id"] for n in batch)
-            print(f"[AI筛选] 热榜批次 {i // batch_size + 1}: {len(batch)} 条 → {len(batch_results)} 条匹配")
+            print(f"[AI筛选] 热榜批次 {batch_no}: {len(batch)} 条 → {len(batch_results)} 条匹配")
 
         succeeded_rss_ids = []
-        for i in range(0, len(pending_rss), batch_size):
+        for batch_no, batch in enumerate(ai_filter.plan_batches(pending_rss, active_tags, interests_content), start=1):
             if batch_count > 0 and batch_interval > 0:
                 import time
                 print(f"[AI筛选] 批次间隔等待 {batch_interval} 秒...")
                 time.sleep(batch_interval)
-            batch = pending_rss[i:i + batch_size]
             titles_for_ai = [
                 {"id": n["id"], "title": n["title"], "source": n.get("source_name", "")}
                 for n in batch
@@ -356,13 +353,13 @@ class AIFilterPipeline:
             batch_results = ai_filter.classify_batch(titles_for_ai, active_tags, interests_content)
             batch_count += 1
             if batch_results is None:
-                print(f"[AI筛选] RSS 批次 {i // batch_size + 1}: {len(batch)} 条 → 分类失败，将在下次运行重试")
+                print(f"[AI筛选] RSS 批次 {batch_no}: {len(batch)} 条 → 分类失败，将在下次运行重试")
                 continue
             for r in batch_results:
                 r["source_type"] = "rss"
             total_results.extend(batch_results)
             succeeded_rss_ids.extend(n["id"] for n in batch)
-            print(f"[AI筛选] RSS 批次 {i // batch_size + 1}: {len(batch)} 条 → {len(batch_results)} 条匹配")
+            print(f"[AI筛选] RSS 批次 {batch_no}: {len(batch)} 条 → {len(batch_results)} 条匹配")
 
         return total_results, succeeded_news_ids, succeeded_rss_ids
 
@@ -446,6 +443,7 @@ class AIFilterPipeline:
                 "last_time": r.get("last_time", ""),
                 "count": r.get("count", 1),
                 "relevance_score": r.get("relevance_score", 0),
+                "push_score": r.get("push_score"),
                 "source_type": r.get("source_type", "hotlist"),
             })
             tag_groups[tag_name]["count"] += 1

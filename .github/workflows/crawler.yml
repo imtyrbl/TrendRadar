@@ -135,6 +135,12 @@ jobs:
           AI_FILTER_API_KEY: ${{ secrets.AI_FILTER_API_KEY }}
           AI_FILTER_API_BASE: ${{ secrets.AI_FILTER_API_BASE }}
           AI_FILTER_MODEL: ${{ secrets.AI_FILTER_MODEL }}
+          # AI 筛选通道开关与 Jev 通道配置
+          # AI_FILTER_PROVIDER 填 jev 才走 Jev，未配置或填其它值一律走原有 chat 通道
+          AI_FILTER_PROVIDER: ${{ secrets.AI_FILTER_PROVIDER }}
+          AI_FILTER_JEV_API_KEY: ${{ secrets.AI_FILTER_JEV_API_KEY }}
+          AI_FILTER_JEV_API_BASE: ${{ secrets.AI_FILTER_JEV_API_BASE }}
+          AI_FILTER_JEV_MODEL: ${{ secrets.AI_FILTER_JEV_MODEL }}
           # AI 翻译专用配置
           AI_TRANSLATION_API_KEY: ${{ secrets.AI_TRANSLATION_API_KEY }}
           AI_TRANSLATION_API_BASE: ${{ secrets.AI_TRANSLATION_API_BASE }}

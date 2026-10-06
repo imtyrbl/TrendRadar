@@ -324,6 +324,17 @@ def _load_ai_translation_config(config_data: Dict) -> Dict:
 def _load_ai_filter_config(config_data: Dict) -> Dict:
     """加载 AI 智能筛选配置（由 filter.method 控制是否启用）"""
     ai_filter = config_data.get("ai_filter", {})
+    jev = ai_filter.get("jev", {})
+
+    # 分类通道：环境变量优先于配置；只有明确填 jev 才走 Jev，其余一律走原有 chat 通道
+    provider_raw = _get_env_str("AI_FILTER_PROVIDER") or ai_filter.get("provider", "chat")
+    provider = "jev" if str(provider_raw).strip().lower() == "jev" else "chat"
+
+    # 相关度阈值按渠道分开取：两个渠道的分数量纲不同，不能共用一个值
+    if provider == "jev":
+        min_score = float(jev.get("min_score", 0))
+    else:
+        min_score = float(ai_filter.get("min_score", 0))
 
     return {
         "BATCH_SIZE": ai_filter.get("batch_size", 200),
@@ -333,7 +344,17 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
         "EXTRACT_PROMPT_FILE": ai_filter.get("extract_prompt_file", "extract_prompt.txt"),
         "UPDATE_TAGS_PROMPT_FILE": ai_filter.get("update_tags_prompt_file", "update_tags_prompt.txt"),
         "RECLASSIFY_THRESHOLD": ai_filter.get("reclassify_threshold", 0.6),
-        "MIN_SCORE": float(ai_filter.get("min_score", 0)),
+        "MIN_SCORE": min_score,
+        "MIN_PUSH_SCORE": float(jev.get("min_push_score", 0)),
+
+        "PROVIDER": provider,
+
+        # Jev 通道配置（仅 provider=jev 时使用，阶段A标签提取仍走 AI_FILTER_MODEL）
+        "JEV_MODEL": _get_env_str("AI_FILTER_JEV_MODEL") or jev.get("model", "jev-latest"),
+        "JEV_API_KEY": _get_env_str("AI_FILTER_JEV_API_KEY") or jev.get("api_key", ""),
+        "JEV_API_BASE": _get_env_str("AI_FILTER_JEV_API_BASE") or jev.get("api_base", ""),
+        "JEV_TIMEOUT": jev.get("timeout", 300),
+        "JEV_MAX_ITEMS_PER_BATCH": jev.get("max_items_per_batch", 15),
     }
 
 

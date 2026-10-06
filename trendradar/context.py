@@ -568,6 +568,7 @@ class AppContext:
         rss_new_stats = []  # AI 筛选的 RSS 新增区（is_new 子集），与关键词路径 rss_new_stats 对齐
         max_news = self.config.get("MAX_NEWS_PER_KEYWORD", 0)
         min_score = self.ai_filter_config.get("MIN_SCORE", 0)
+        min_push_score = self.ai_filter_config.get("MIN_PUSH_SCORE", 0)
 
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
         # 与 count_word_frequency(mode="current") 的过滤逻辑对齐
@@ -600,6 +601,7 @@ class AppContext:
                     pass
 
         filtered_count = 0
+        push_filtered_count = 0
         for tag_data in ai_filter_result.tags:
             tag_name = tag_data.get("tag", "")
             items = tag_data.get("items", [])
@@ -622,6 +624,13 @@ class AppContext:
                 if min_score > 0:
                     score = item.get("relevance_score", 0)
                     if score < min_score:
+                        continue
+
+                # push 阈值过滤：跳过不值得推送的新闻（push_score 仅 jev 通道有，chat 通道为 None 不过滤）
+                if min_push_score > 0:
+                    push_score = item.get("push_score")
+                    if push_score is not None and push_score < min_push_score:
+                        push_filtered_count += 1
                         continue
 
                 # 构建时间显示
@@ -735,6 +744,9 @@ class AppContext:
             if rss_kept > 0:
                 parts.append(f"RSS {rss_kept} 条")
             print(f"[AI筛选] 分数过滤：min_score={min_score}，保留 {total_kept} 条 score≥{min_score} ({', '.join(parts)})")
+
+        if min_push_score > 0 and push_filtered_count > 0:
+            print(f"[AI筛选] push 过滤：min_push_score={min_push_score}，过滤 {push_filtered_count} 条")
 
         priority_sort_enabled = self.ai_priority_sort_enabled
         if priority_sort_enabled:

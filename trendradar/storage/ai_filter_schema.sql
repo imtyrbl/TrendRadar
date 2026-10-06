@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS ai_filter_results (
     source_type TEXT NOT NULL DEFAULT 'hotlist',  -- hotlist / rss
     tag_id INTEGER NOT NULL,             -- 引用 ai_filter_tags.id
     relevance_score REAL DEFAULT 0,      -- 相关度 0.0 ~ 1.0
+    push_score REAL DEFAULT NULL,        -- 推送价值 0.0 ~ 1.0（仅 jev 通道产出，chat 通道为 NULL）
     status TEXT DEFAULT 'active',        -- active / deprecated
     deprecated_at TEXT,
     created_at TEXT NOT NULL,
