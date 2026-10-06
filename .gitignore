@@ -14,3 +14,6 @@ build/
 *.swo
 *~
 .DS_Store
+
+# 本地修改记录（个人备忘，不纳入版本控制）
+TrendRadar_完整修改记录.md

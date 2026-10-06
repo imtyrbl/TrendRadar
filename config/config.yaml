@@ -414,8 +414,28 @@ ai:
   fallback_models: []               # 备用模型列表（可选）
                                     # 示例: ["openai/gpt-4o-mini", "openai/deepseek-ai/DeepSeek-V3"]
 
-  # 额外参数（一般无需修改，删掉 # 号即可启用）
-  # extra_params:
+  # 额外参数：透传给 LiteLLM 的 provider 专属参数
+  #
+  # ⚠️ 关闭思考（think）必须写在 extra_body 内，形如：
+  #     extra_params:
+  #       extra_body:
+  #         thinking:
+  #           type: disabled
+  #
+  # 为什么不能写在顶层？顶层传 thinking 会被 LiteLLM 按 provider 语义
+  # 改写或直接拦截（报 UnsupportedParamsError），参数到不了上游。
+  # 包进 extra_body 才能原样进入请求体。
+  #
+  # 注意：是否生效取决于上游是否支持该参数。
+  #   - 支持 thinking.type 的渠道 → 生效
+  #   - 只认 reasoning_effort 的渠道 → 需改用 {"extra_body": {"reasoning_effort": "none"}}
+  #   - 不支持任何关闭参数的模型 → 参数被忽略，不影响正常调用
+  extra_params:
+    extra_body:
+      thinking:
+        type: disabled
+
+  # 其他常用额外参数示例（按需增删，与上方 extra_body 同级）
   #   top_p: 1.0
   #   presence_penalty: 0.0
   #   stop: ["END"]

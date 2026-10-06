@@ -29,6 +29,11 @@ class AIClient:
                 - TIMEOUT: 请求超时时间（秒）
                 - NUM_RETRIES: 重试次数（可选）
                 - FALLBACK_MODELS: 备用模型列表（可选）
+                - EXTRA_PARAMS: 额外透传给 LiteLLM 的参数（可选）
+                    用于传递 provider 专属参数，如关闭思考：
+                    {"extra_body": {"thinking": {"type": "disabled"}}}
+                    注：必须包在 extra_body 内。顶层直接传 thinking 会被
+                    LiteLLM 按 provider 语义改写或拦截，无法到达上游。
         """
         self.model = config.get("MODEL", "deepseek/deepseek-chat")
         self.api_key = config.get("API_KEY") or os.environ.get("AI_API_KEY", "")
@@ -38,6 +43,7 @@ class AIClient:
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
+        self.extra_params = config.get("EXTRA_PARAMS", {}) or {}
 
     def chat(
         self,
@@ -82,6 +88,11 @@ class AIClient:
         # 添加 fallback 模型（如果配置了）
         if self.fallback_models:
             params["fallbacks"] = self.fallback_models
+
+        # 合并配置中的额外参数（如关闭思考的 extra_body）
+        # 用 setdefault 保证下方显式 kwargs 仍可覆盖配置
+        for key, value in self.extra_params.items():
+            params.setdefault(key, value)
 
         # 合并其他额外参数
         for key, value in kwargs.items():
