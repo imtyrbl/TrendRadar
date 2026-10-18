@@ -451,6 +451,7 @@ ai:
                                     # 示例: ["openai/gpt-4o-mini", "openai/deepseek-ai/DeepSeek-V3"]
 
   # 额外参数：透传给 LiteLLM 的 provider 专属参数
+  # 会原样透传给 LiteLLM，可用于补充请求参数或自定义请求头
   #
   # ⚠️ 关闭思考（think）必须写在 extra_body 内，形如：
   #     extra_params:

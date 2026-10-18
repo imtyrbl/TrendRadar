@@ -29,9 +29,10 @@ class AIClient:
                 - TIMEOUT: 请求超时时间（秒）
                 - NUM_RETRIES: 重试次数（可选）
                 - FALLBACK_MODELS: 备用模型列表（可选）
-                - EXTRA_PARAMS: 额外透传给 LiteLLM 的参数（可选）
+                - EXTRA_PARAMS: 透传给 LiteLLM 的额外参数（可选）
                     用于传递 provider 专属参数，如关闭思考：
                     {"extra_body": {"thinking": {"type": "disabled"}}}
+                    也可传 extra_headers、top_p、presence_penalty、stop 等。
                     注：必须包在 extra_body 内。顶层直接传 thinking 会被
                     LiteLLM 按 provider 语义改写或拦截，无法到达上游。
         """
@@ -43,7 +44,14 @@ class AIClient:
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
-        self.extra_params = config.get("EXTRA_PARAMS", {}) or {}
+        # config.yaml 中 ai.extra_params 的透传参数（如关闭思考、自定义请求头）
+        self.extra_params = config.get("EXTRA_PARAMS") or {}
+        if not isinstance(self.extra_params, dict):
+            print(
+                f"[AI] 配置错误: ai.extra_params 应为字典，"
+                f"当前为 {type(self.extra_params).__name__}，已忽略"
+            )
+            self.extra_params = {}
 
     def chat(
         self,
@@ -89,13 +97,10 @@ class AIClient:
         if self.fallback_models:
             params["fallbacks"] = self.fallback_models
 
-        # 合并配置中的额外参数（如关闭思考的 extra_body）
-        # 用 setdefault 保证下方显式 kwargs 仍可覆盖配置
-        for key, value in self.extra_params.items():
-            params.setdefault(key, value)
-
-        # 合并其他额外参数
-        for key, value in kwargs.items():
+        # 合并配置文件中的 extra_params（如关闭思考的 extra_body、自定义请求头），
+        # 再用调用方 kwargs 覆盖；两者均不覆盖上方已确定的核心参数，
+        # 因此未配置 extra_params 时行为与原先完全一致
+        for key, value in {**self.extra_params, **kwargs}.items():
             if key not in params:
                 params[key] = value
 
