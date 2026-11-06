@@ -251,6 +251,20 @@ class AIAnalyzer:
             # 如果配置未启用 standalone 分析，强制清空
             if not self.include_standalone:
                 result.standalone_summaries = {}
+            else:
+                # 只保留确实送进 prompt 的源：模型会照抄提示词示例里的源名，
+                # 曾在没有该源数据时凭空输出「Hacker News: 本期无该来源数据」
+                sent_names = {
+                    source.get("name", source.get("id", ""))
+                    for key in ("platforms", "rss_feeds")
+                    for source in (standalone_data or {}).get(key, [])
+                    if source.get("items")
+                }
+                result.standalone_summaries = {
+                    name: summary
+                    for name, summary in result.standalone_summaries.items()
+                    if name.strip().strip("[]") in sent_names
+                }
 
             # 填充统计数据
             result.total_news = total_news
