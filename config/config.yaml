@@ -491,6 +491,7 @@ ai:
 #   - AI_ANALYSIS_API_KEY
 #   - AI_ANALYSIS_API_BASE
 #   - AI_ANALYSIS_MODEL
+#   - AI_ANALYSIS_FALLBACK_MODEL / AI_ANALYSIS_FALLBACK_API_KEY / AI_ANALYSIS_FALLBACK_API_BASE（备用渠道）
 # ===============================================================
 ai_analysis_model:
   model: ""                         # 留空则从环境变量 AI_ANALYSIS_MODEL 读取
@@ -498,6 +499,22 @@ ai_analysis_model:
   api_base: ""                      # 留空则从环境变量 AI_ANALYSIS_API_BASE 读取
   timeout: 120
   max_tokens: 5000
+
+  # 备用渠道（可选）：主渠道出现以下情况时，换备用渠道把整个分析请求再发一次
+  #   - 抛异常：超时（含 num_retries 重试后仍超时）、渠道挂掉、鉴权失败等
+  #   - 返回空内容，或因 max_tokens 被截断（思考内容占满输出额度的典型表现）
+  # 与 ai.fallback_models 的区别：后者是 LiteLLM 内置的，只在抛异常时切换，
+  # 兜不住「思考占满输出、正文为空/残缺」这种不报错的失败
+  #
+  # model 为空（且无 AI_ANALYSIS_FALLBACK_MODEL 环境变量）= 不启用
+  # api_key / api_base 留空则沿用主渠道的；其余未填字段（temperature、extra_params 等）也沿用主渠道
+  # ⚠️ 主渠道最坏耗时 ≈ timeout ×（num_retries + 1），再加备用渠道耗时，注意别超出 Actions 的 job 时限
+  fallback:
+    model: ""                       # 留空则从环境变量 AI_ANALYSIS_FALLBACK_MODEL 读取
+    api_key: ""                     # 建议用环境变量 AI_ANALYSIS_FALLBACK_API_KEY，不要写进仓库
+    api_base: ""                    # 留空则从环境变量 AI_ANALYSIS_FALLBACK_API_BASE 读取
+    timeout: 180
+    max_tokens: 8000
 
 # ===============================================================
 # 8.2 AI 筛选专用模型配置（可选）

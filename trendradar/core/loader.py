@@ -688,9 +688,9 @@ def resolve_ai_config(config: Dict[str, Any], config_key: str, env_prefix: str) 
 
         return result
 
-    # 合并配置：专用配置覆盖默认配置（只排除 pass 键和空值）
+    # 合并配置：专用配置覆盖默认配置（只排除 pass 键、fallback 备用渠道块和空值）
     result = dict(default_config)
-    result.update({k.upper(): v for k, v in specialized_config.items() if k != "pass" and v})
+    result.update({k.upper(): v for k, v in specialized_config.items() if k not in ("pass", "fallback") and v})
 
     # 环境变量覆盖（最高优先级）
     env_model = os.getenv(f"{env_prefix}_MODEL")
@@ -704,4 +704,34 @@ def resolve_ai_config(config: Dict[str, Any], config_key: str, env_prefix: str) 
     if env_api_base:
         result["API_BASE"] = env_api_base
 
+    return result
+
+
+def resolve_ai_fallback_config(
+    config: Dict[str, Any], config_key: str, env_prefix: str
+) -> Optional[Dict[str, Any]]:
+    """
+    解析专用配置块下的 fallback 备用渠道（应用层兜底，主渠道失败后整体再试一次）
+
+    以主渠道的解析结果为底，被 fallback 块的非空字段覆盖，再被
+    {env_prefix}_FALLBACK_MODEL / _API_KEY / _API_BASE 环境变量覆盖。
+    未填 key / base 时沿用主渠道的，便于同一服务商换模型兜底。
+
+    Returns:
+        备用渠道配置；未配置备用模型时返回 None
+    """
+    fallback_raw = (config.get(config_key) or {}).get("fallback") or {}
+
+    result = resolve_ai_config(config, config_key, env_prefix)
+    # 备用渠道不再嵌套 LiteLLM 的 fallbacks，避免一次兜底放大成多轮调用
+    result["FALLBACK_MODELS"] = []
+    result.update({k.upper(): v for k, v in fallback_raw.items() if v})
+
+    for field in ("MODEL", "API_KEY", "API_BASE"):
+        env_value = os.getenv(f"{env_prefix}_FALLBACK_{field}")
+        if env_value:
+            result[field] = env_value
+
+    if not (fallback_raw.get("model") or os.getenv(f"{env_prefix}_FALLBACK_MODEL")):
+        return None
     return result

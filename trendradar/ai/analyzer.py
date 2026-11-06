@@ -81,6 +81,7 @@ class AIAnalyzer:
         analysis_config: Dict[str, Any],
         get_time_func: Callable,
         debug: bool = False,
+        fallback_config: Optional[Dict[str, Any]] = None,
     ):
         """
         初始化 AI 分析器
@@ -90,6 +91,7 @@ class AIAnalyzer:
             analysis_config: AI 分析功能配置（language, prompt_file 等）
             get_time_func: 获取当前时间的函数
             debug: 是否开启调试模式
+            fallback_config: 备用渠道配置（可选），主渠道失败时整体再试一次
         """
         self.ai_config = ai_config
         self.analysis_config = analysis_config
@@ -98,6 +100,9 @@ class AIAnalyzer:
 
         # 创建 AI 客户端（基于 LiteLLM）
         self.client = AIClient(ai_config)
+        self.fallback_client = AIClient(fallback_config) if fallback_config else None
+        # 实际产出本次响应的客户端，JSON 修复重试沿用它（主渠道已挂时不能再找主渠道修）
+        self._active_client = self.client
 
         # 验证配置
         valid, error = self.client.validate_config()
@@ -158,6 +163,10 @@ class AIAnalyzer:
         timeout = self.ai_config.get("TIMEOUT", 120)
         max_tokens = self.ai_config.get("MAX_TOKENS", 5000)
         print(f"[AI] 参数: timeout={timeout}, max_tokens={max_tokens}")
+        if self.fallback_client:
+            fallback_display = self.fallback_client.model.replace("/", "/\u200b")
+            print(f"[AI] 备用渠道: {fallback_display}（timeout={self.fallback_client.timeout}, "
+                  f"max_tokens={self.fallback_client.max_tokens}）")
 
         if not self.client.api_key:
             return AIAnalysisResult(
@@ -388,13 +397,39 @@ class AIAnalyzer:
         )
 
     def _call_ai(self, user_prompt: str) -> str:
-        """调用 AI API（使用 LiteLLM）"""
+        """
+        调用 AI API（使用 LiteLLM）
+
+        配置了备用渠道时，主渠道出现以下情况会整体换备用渠道再试一次：
+        - 抛异常：超时（含 LiteLLM 重试后仍超时）、渠道挂掉、鉴权失败等
+        - 返回空内容，或 finish_reason=length：思考内容占满 max_tokens，正文为空或残缺
+
+        后两种 LiteLLM 不会抛异常，ai.fallback_models 兜不住，所以在应用层判断。
+        """
         messages = []
         if self.system_prompt:
             messages.append({"role": "system", "content": self.system_prompt})
         messages.append({"role": "user", "content": user_prompt})
 
-        return self.client.chat(messages)
+        self._active_client = self.client
+        if not self.fallback_client:
+            return self.client.chat(messages)
+
+        try:
+            response = self.client.chat(messages)
+            if not response.strip():
+                problem = "返回空内容"
+            elif self.client.last_finish_reason == "length":
+                problem = "输出被 max_tokens 截断"
+            else:
+                return response
+        except Exception as e:
+            problem = f"{type(e).__name__}: {str(e)[:200]}"
+
+        fallback_display = self.fallback_client.model.replace("/", "/\u200b")
+        print(f"[AI] 主渠道失败（{problem}），切换备用渠道 {fallback_display} 重试")
+        self._active_client = self.fallback_client
+        return self.fallback_client.chat(messages)
 
     def _retry_fix_json(self, original_response: str, error_msg: str) -> Optional[AIAnalysisResult]:
         """
@@ -433,7 +468,7 @@ class AIAnalyzer:
         ]
 
         try:
-            response = self.client.chat(messages)
+            response = self._active_client.chat(messages)
             return self._parse_response(response)
         except Exception as e:
             print(f"[AI] 重试修复 JSON 异常: {type(e).__name__}: {e}")

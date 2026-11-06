@@ -52,6 +52,7 @@ class AIClient:
                 f"当前为 {type(self.extra_params).__name__}，已忽略"
             )
             self.extra_params = {}
+        self.last_finish_reason = None
 
     def chat(
         self,
@@ -106,6 +107,10 @@ class AIClient:
 
         # 调用 LiteLLM
         response = completion(**params)
+
+        # 记录结束原因供调用方判断截断：length 表示输出被 max_tokens 截断
+        # （思考模型的 reasoning 占满输出额度时也是 length，此时正文为空或残缺）
+        self.last_finish_reason = getattr(response.choices[0], "finish_reason", None)
 
         # 提取响应内容
         # 某些模型/提供商返回 list（内容块）而非 str，统一转为 str

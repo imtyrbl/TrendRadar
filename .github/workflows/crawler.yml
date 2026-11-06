@@ -131,6 +131,10 @@ jobs:
           AI_ANALYSIS_API_KEY: ${{ secrets.AI_ANALYSIS_API_KEY }}
           AI_ANALYSIS_API_BASE: ${{ secrets.AI_ANALYSIS_API_BASE }}
           AI_ANALYSIS_MODEL: ${{ secrets.AI_ANALYSIS_MODEL }}
+          # AI 分析备用渠道（可选）：主渠道异常/超时/空响应/输出截断时换它再试一次
+          AI_ANALYSIS_FALLBACK_MODEL: ${{ secrets.AI_ANALYSIS_FALLBACK_MODEL }}
+          AI_ANALYSIS_FALLBACK_API_KEY: ${{ secrets.AI_ANALYSIS_FALLBACK_API_KEY }}
+          AI_ANALYSIS_FALLBACK_API_BASE: ${{ secrets.AI_ANALYSIS_FALLBACK_API_BASE }}
           # AI 筛选专用配置
           AI_FILTER_API_KEY: ${{ secrets.AI_FILTER_API_KEY }}
           AI_FILTER_API_BASE: ${{ secrets.AI_FILTER_API_BASE }}

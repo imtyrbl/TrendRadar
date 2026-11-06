@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from trendradar.context import AppContext
 from trendradar import __version__
 from trendradar.core import load_config
-from trendradar.core.loader import resolve_ai_config
+from trendradar.core.loader import resolve_ai_config, resolve_ai_fallback_config
 from trendradar.core.analyzer import convert_keyword_stats_to_platform_stats
 from trendradar.core.dedup import dedup_similar_titles
 from trendradar.crawler import DataFetcher
@@ -358,8 +358,12 @@ class NewsAnalyzer:
         print("[AI] 正在进行 AI 分析...")
         try:
             ai_config = resolve_ai_config(self.ctx.config, "AI_ANALYSIS_MODEL", "AI_ANALYSIS")
+            fallback_config = resolve_ai_fallback_config(self.ctx.config, "AI_ANALYSIS_MODEL", "AI_ANALYSIS")
             debug_mode = self.ctx.config.get("DEBUG", False)
-            analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=debug_mode)
+            analyzer = AIAnalyzer(
+                ai_config, analysis_config, self.ctx.get_time,
+                debug=debug_mode, fallback_config=fallback_config,
+            )
 
             # 确定 AI 分析使用的模式
             ai_mode_config = analysis_config.get("MODE", "follow_report")
