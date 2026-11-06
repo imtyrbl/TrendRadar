@@ -236,6 +236,9 @@ ai_filter:
                                           # https://host → https://host/v1/systemone
                                           # https://host/v1 → https://host/v1/systemone
     timeout: 300
+    probe_timeout: 30                     # 探活超时（秒）。每轮分类前先发一个最小请求探活，
+                                          # 不通（超时/502/缺答案）则本轮分类整体回落到 chat 通道，
+                                          # 用的是 ai_filter_model 与上方 batch_size / min_score；下轮重新探活
     max_items_per_batch: 15               # 每批新闻条数上限（token 超限会自动再缩批）
                                           # 官方硬限制：state + 全部问题 ≤ 64k token
 

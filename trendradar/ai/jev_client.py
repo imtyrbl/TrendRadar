@@ -10,7 +10,7 @@ Jev（TypeSafe System One）不是 LLM：不生成文本、不输出 token，直
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 # Cloudflare 会按 User-Agent 拦截非浏览器请求（error code: 1010），必须显式设置
 BROWSER_UA = (
@@ -66,13 +66,19 @@ class JevClient:
         self.api_base = normalize_endpoint(config.get("API_BASE", ""))
         self.timeout = config.get("TIMEOUT", 300)
 
-    def decide(self, state: str, questions: Dict[str, Dict]) -> Dict[str, Any]:
+    def decide(
+        self,
+        state: str,
+        questions: Dict[str, Dict],
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
         """
         发起一次决策请求
 
         Args:
             state: 所有问题共享的上下文文本
             questions: {问题键名: {"type": "choice"|"score"|"noul", ...}}
+            timeout: 本次请求超时（秒），不传则用配置的 TIMEOUT
 
         Returns:
             完整响应字典，答案在 response["answers"] 下
@@ -98,11 +104,42 @@ class JevClient:
         request = urllib.request.Request(self.api_base, data=body, method="POST", headers=headers)
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", "replace")[:300]
             raise RuntimeError(f"Jev 请求失败 HTTP {e.code}: {detail}") from e
+
+    def probe(self, timeout: float) -> Tuple[bool, str]:
+        """
+        探活：发一个最小的真实决策请求，能拿到答案才算可用
+
+        不用 /v1/models 之类的轻量接口：实测故障是 Jev 网关正常、上游返回
+        502 Upstream service temporarily unavailable，只有真实决策请求能覆盖到上游。
+
+        Returns:
+            (是否可用, 不可用原因)
+        """
+        ok, err = self.validate_config()
+        if not ok:
+            return False, err
+
+        questions = {
+            "probe": {
+                "type": "choice",
+                "instructions": "这条消息的用途是什么？",
+                "criteria": {"test": "连通性测试", "other": "其它"},
+            }
+        }
+        try:
+            response = self.decide("连通性测试消息", questions, timeout=timeout)
+        except Exception as e:
+            return False, f"{type(e).__name__}: {e}"
+
+        answers = response.get("answers") if isinstance(response, dict) else None
+        if not isinstance(answers, dict) or "probe" not in answers:
+            return False, "响应缺少 answers.probe"
+        return True, ""
 
     def validate_config(self) -> tuple[bool, str]:
         """验证配置是否有效"""

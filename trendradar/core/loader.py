@@ -330,12 +330,6 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
     provider_raw = _get_env_str("AI_FILTER_PROVIDER") or ai_filter.get("provider", "chat")
     provider = "jev" if str(provider_raw).strip().lower() == "jev" else "chat"
 
-    # 相关度阈值按渠道分开取：两个渠道的分数量纲不同，不能共用一个值
-    if provider == "jev":
-        min_score = float(jev.get("min_score", 0))
-    else:
-        min_score = float(ai_filter.get("min_score", 0))
-
     return {
         "BATCH_SIZE": ai_filter.get("batch_size", 200),
         "BATCH_INTERVAL": ai_filter.get("batch_interval", 5),
@@ -344,7 +338,10 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
         "EXTRACT_PROMPT_FILE": ai_filter.get("extract_prompt_file", "extract_prompt.txt"),
         "UPDATE_TAGS_PROMPT_FILE": ai_filter.get("update_tags_prompt_file", "update_tags_prompt.txt"),
         "RECLASSIFY_THRESHOLD": ai_filter.get("reclassify_threshold", 0.6),
-        "MIN_SCORE": min_score,
+        # 相关度阈值按渠道各存一份：两个渠道分数量纲不同，且 jev 探活失败会回落 chat，
+        # 库里新旧结果可能混着两个渠道，展示时按每条结果的来源渠道分别套用
+        "MIN_SCORE": float(ai_filter.get("min_score", 0)),
+        "JEV_MIN_SCORE": float(jev.get("min_score", 0)),
         "MIN_PUSH_SCORE": float(jev.get("min_push_score", 0)),
 
         "PROVIDER": provider,
@@ -354,6 +351,7 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
         "JEV_API_KEY": _get_env_str("AI_FILTER_JEV_API_KEY") or jev.get("api_key", ""),
         "JEV_API_BASE": _get_env_str("AI_FILTER_JEV_API_BASE") or jev.get("api_base", ""),
         "JEV_TIMEOUT": jev.get("timeout", 300),
+        "JEV_PROBE_TIMEOUT": jev.get("probe_timeout", 30),
         "JEV_MAX_ITEMS_PER_BATCH": jev.get("max_items_per_batch", 15),
     }
 

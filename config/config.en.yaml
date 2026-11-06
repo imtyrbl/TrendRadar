@@ -220,6 +220,9 @@ ai_filter:
     api_base: ""                          # Jev endpoint; the host alone is enough, it is completed to
                                           # https://host/v1/systemone automatically
     timeout: 300
+    probe_timeout: 30                     # Probe timeout (s). A minimal request is sent before each classification run;
+                                          # if it fails (timeout/502/missing answer), this run falls back to the chat channel
+                                          # (ai_filter_model with the batch_size / min_score above); re-probed next run
     max_items_per_batch: 15               # Max titles per batch (auto-shrinks further on token limit)
                                           # Hard limit: state + all questions ≤ 64k tokens
 

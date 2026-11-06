@@ -76,6 +76,7 @@ class AIFilter:
         self.provider = str(filter_config.get("PROVIDER", "chat")).lower()
         self.jev_client = None
         self.jev_max_items = filter_config.get("JEV_MAX_ITEMS_PER_BATCH", 15)
+        self.jev_probe_timeout = filter_config.get("JEV_PROBE_TIMEOUT", 30)
         if self.provider == "jev":
             self.jev_client = JevClient({
                 "MODEL": filter_config.get("JEV_MODEL", "jev-latest"),
@@ -590,6 +591,25 @@ class AIFilter:
     # ========================================
     # Jev 通道（阶段 B 专用）
     # ========================================
+
+    def ensure_jev_available(self) -> None:
+        """
+        分类开始前对 Jev 探活，不通则本轮阶段 B 整体回落到 chat 通道
+
+        Jev 故障时每个批次要耗几十秒才返回 502，且失败批次下轮重试会让积压越滚越大，
+        曾因此撞上 Actions 的 job 超时；探活一次就能避免逐批空耗。
+        回落只影响本轮，下轮重新探活。
+        """
+        if self.provider != "jev":
+            return
+
+        ok, reason = self.jev_client.probe(self.jev_probe_timeout)
+        if ok:
+            print("[AI筛选] Jev 探活通过，本轮分类走 jev 通道")
+            return
+
+        self.provider = "chat"
+        print(f"[AI筛选] Jev 探活失败（{reason}），本轮分类回落到 chat 通道（每批 {self.batch_size} 条）")
 
     def plan_batches(self, titles: List[Dict], tags: List[Dict], interests_content: str = "") -> List[List[Dict]]:
         """

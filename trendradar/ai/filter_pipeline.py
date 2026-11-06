@@ -139,6 +139,9 @@ class AIFilterPipeline:
         total_pending = len(pending_news) + len(pending_rss)
         if total_pending == 0:
             print("[AI筛选] 没有新增新闻需要分类")
+        else:
+            # 有活要干才探活：Jev 不通时本轮回落到 chat，必须在 plan_batches 之前决定通道
+            ai_filter.ensure_jev_available()
 
         # 5. 批量分类
         total_results, succeeded_news_ids, succeeded_rss_ids = self._classify_batches(

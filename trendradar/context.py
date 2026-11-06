@@ -568,6 +568,7 @@ class AppContext:
         rss_new_stats = []  # AI 筛选的 RSS 新增区（is_new 子集），与关键词路径 rss_new_stats 对齐
         max_news = self.config.get("MAX_NEWS_PER_KEYWORD", 0)
         min_score = self.ai_filter_config.get("MIN_SCORE", 0)
+        jev_min_score = self.ai_filter_config.get("JEV_MIN_SCORE", 0)
         min_push_score = self.ai_filter_config.get("MIN_PUSH_SCORE", 0)
 
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
@@ -620,10 +621,12 @@ class AppContext:
                         filtered_count += 1
                         continue
 
-                # 分数阈值过滤：跳过相关度低于 min_score 的新闻
-                if min_score > 0:
+                # 分数阈值过滤：按结果来源渠道取阈值（两渠道分数量纲不同）。
+                # push_score 只有 jev 通道会写入、chat 通道恒为 None，据此区分来源
+                item_min_score = jev_min_score if item.get("push_score") is not None else min_score
+                if item_min_score > 0:
                     score = item.get("relevance_score", 0)
-                    if score < min_score:
+                    if score < item_min_score:
                         continue
 
                 # push 阈值过滤：跳过不值得推送的新闻（push_score 仅 jev 通道有，chat 通道为 None 不过滤）
@@ -736,14 +739,14 @@ class AppContext:
             total_kept = sum(s["count"] for s in hotlist_stats)
             print(f"[AI筛选] current 模式：过滤 {filtered_count} 条已下榜新闻，保留 {total_kept} 条当前在榜")
 
-        if min_score > 0:
+        if min_score > 0 or jev_min_score > 0:
             hotlist_kept = sum(s["count"] for s in hotlist_stats)
             rss_kept = sum(s["count"] for s in rss_stats)
             total_kept = hotlist_kept + rss_kept
             parts = [f"热榜 {hotlist_kept} 条"]
             if rss_kept > 0:
                 parts.append(f"RSS {rss_kept} 条")
-            print(f"[AI筛选] 分数过滤：min_score={min_score}，保留 {total_kept} 条 score≥{min_score} ({', '.join(parts)})")
+            print(f"[AI筛选] 分数过滤：min_score(chat)={min_score}, min_score(jev)={jev_min_score}，保留 {total_kept} 条 ({', '.join(parts)})")
 
         if min_push_score > 0 and push_filtered_count > 0:
             print(f"[AI筛选] push 过滤：min_push_score={min_push_score}，过滤 {push_filtered_count} 条")
