@@ -570,6 +570,12 @@ class AppContext:
         min_score = self.ai_filter_config.get("MIN_SCORE", 0)
         jev_min_score = self.ai_filter_config.get("JEV_MIN_SCORE", 0)
         min_push_score = self.ai_filter_config.get("MIN_PUSH_SCORE", 0)
+        # 库里的结果不记录来自哪个决策模型，只能按当前配置的通道取阈值；
+        # 切换 jev ↔ gemini 后，旧结果会按新通道的阈值过滤，直到被重新分类
+        decision_min_score = jev_min_score
+        if self.ai_filter_config.get("PROVIDER") == "gemini":
+            decision_min_score = self.ai_filter_config.get("GEMINI_MIN_SCORE", 0)
+            min_push_score = self.ai_filter_config.get("GEMINI_MIN_PUSH_SCORE", 0)
 
         # current 模式：计算最新时间，只保留当前在榜的热榜新闻
         # 与 count_word_frequency(mode="current") 的过滤逻辑对齐
@@ -621,15 +627,15 @@ class AppContext:
                         filtered_count += 1
                         continue
 
-                # 分数阈值过滤：按结果来源渠道取阈值（两渠道分数量纲不同）。
-                # push_score 只有 jev 通道会写入、chat 通道恒为 None，据此区分来源
-                item_min_score = jev_min_score if item.get("push_score") is not None else min_score
+                # 分数阈值过滤：按结果来源渠道取阈值（决策模型与 chat 的分数量纲不同）。
+                # push_score 只有决策模型通道会写入、chat 通道恒为 None，据此区分来源
+                item_min_score = decision_min_score if item.get("push_score") is not None else min_score
                 if item_min_score > 0:
                     score = item.get("relevance_score", 0)
                     if score < item_min_score:
                         continue
 
-                # push 阈值过滤：跳过不值得推送的新闻（push_score 仅 jev 通道有，chat 通道为 None 不过滤）
+                # push 阈值过滤：跳过不值得推送的新闻（push_score 仅决策模型通道有，chat 通道为 None 不过滤）
                 if min_push_score > 0:
                     push_score = item.get("push_score")
                     if push_score is not None and push_score < min_push_score:
@@ -739,14 +745,14 @@ class AppContext:
             total_kept = sum(s["count"] for s in hotlist_stats)
             print(f"[AI筛选] current 模式：过滤 {filtered_count} 条已下榜新闻，保留 {total_kept} 条当前在榜")
 
-        if min_score > 0 or jev_min_score > 0:
+        if min_score > 0 or decision_min_score > 0:
             hotlist_kept = sum(s["count"] for s in hotlist_stats)
             rss_kept = sum(s["count"] for s in rss_stats)
             total_kept = hotlist_kept + rss_kept
             parts = [f"热榜 {hotlist_kept} 条"]
             if rss_kept > 0:
                 parts.append(f"RSS {rss_kept} 条")
-            print(f"[AI筛选] 分数过滤：min_score(chat)={min_score}, min_score(jev)={jev_min_score}，保留 {total_kept} 条 ({', '.join(parts)})")
+            print(f"[AI筛选] 分数过滤：min_score(chat)={min_score}, min_score(决策模型)={decision_min_score}，保留 {total_kept} 条 ({', '.join(parts)})")
 
         if min_push_score > 0 and push_filtered_count > 0:
             print(f"[AI筛选] push 过滤：min_push_score={min_push_score}，过滤 {push_filtered_count} 条")

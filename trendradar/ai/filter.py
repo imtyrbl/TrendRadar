@@ -14,11 +14,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from trendradar.ai.client import AIClient
+from trendradar.ai.gemini_decisions_client import GeminiDecisionAPIError, GeminiDecisionClient
 from trendradar.ai.jev_client import JevClient, split_into_batches
 from trendradar.ai.prompt_loader import load_prompt_template
 
 # Jev choice 的「都不匹配」选项键，与标签 id 不会冲突
 JEV_NO_MATCH = "__none__"
+GEMINI_NO_MATCH = "other"
 
 
 @dataclass
@@ -71,12 +73,15 @@ class AIFilter:
         self.get_time_func = get_time_func
         self.debug = debug
 
-        # 分类通道：chat（默认，走 LiteLLM）/ jev（决策模型，走直连）
-        # 仅阶段 B 分类可切换；阶段 A 的标签提取/更新需要生成文本，Jev 做不了，仍走 chat
+        # 分类通道：chat（默认，走 LiteLLM）/ jev、gemini（决策模型，走直连）
+        # 仅阶段 B 分类可切换；阶段 A 的标签提取/更新需要生成文本，决策模型做不了，仍走 chat
         self.provider = str(filter_config.get("PROVIDER", "chat")).lower()
         self.jev_client = None
+        self.gemini_client = None
         self.jev_max_items = filter_config.get("JEV_MAX_ITEMS_PER_BATCH", 15)
         self.jev_probe_timeout = filter_config.get("JEV_PROBE_TIMEOUT", 30)
+        self.gemini_max_items = filter_config.get("GEMINI_MAX_ITEMS_PER_BATCH", 50)
+        self.gemini_probe_timeout = filter_config.get("GEMINI_PROBE_TIMEOUT", 30)
         if self.provider == "jev":
             self.jev_client = JevClient({
                 "MODEL": filter_config.get("JEV_MODEL", "jev-latest"),
@@ -88,8 +93,24 @@ class AIFilter:
             if not ok:
                 print(f"[AI筛选] Jev 配置不完整: {err}")
 
+        if self.provider == "gemini":
+            self.gemini_client = GeminiDecisionClient({
+                "API_KEY": filter_config.get("GEMINI_API_KEY", ""),
+                "TIMEOUT": filter_config.get("GEMINI_TIMEOUT", 60),
+                "TOKENS_PER_MINUTE": filter_config.get("GEMINI_TOKENS_PER_MINUTE", 35000),
+            })
+            ok, err = self.gemini_client.validate_config()
+            if not ok:
+                print(f"[AI筛选] Gemini 配置不完整: {err}")
+
         if self.provider == "jev":
             print(f"[AI筛选] 分类通道: jev（{self.jev_client.model}，每批上限 {self.jev_max_items} 条）")
+            print(f"[AI筛选]   阶段A标签提取/更新仍走上方模型")
+        elif self.provider == "gemini":
+            print(
+                f"[AI筛选] 分类通道: Gemini Decision 1（每批上限 {self.gemini_max_items} 条，"
+                f"目标 TPM {self.gemini_client.tokens_per_minute}）"
+            )
             print(f"[AI筛选]   阶段A标签提取/更新仍走上方模型")
         else:
             print(f"[AI筛选] 分类通道: chat")
@@ -375,6 +396,8 @@ class AIFilter:
 
         if self.provider == "jev":
             return self._classify_batch_jev(titles, tags, interests_content)
+        if self.provider == "gemini":
+            return self._classify_batch_gemini(titles, tags, interests_content)
 
         return self._classify_batch_chat(titles, tags, interests_content)
 
@@ -594,22 +617,26 @@ class AIFilter:
 
     def ensure_jev_available(self) -> None:
         """
-        分类开始前对 Jev 探活，不通则本轮阶段 B 整体回落到 chat 通道
+        分类开始前对决策模型（jev / gemini）探活，不通则本轮阶段 B 整体回落到 chat 通道
 
         Jev 故障时每个批次要耗几十秒才返回 502，且失败批次下轮重试会让积压越滚越大，
-        曾因此撞上 Actions 的 job 超时；探活一次就能避免逐批空耗。
+        曾因此撞上 Actions 的 job 超时；探活一次就能避免逐批空耗。Gemini 同理。
         回落只影响本轮，下轮重新探活。
         """
-        if self.provider != "jev":
+        if self.provider == "jev":
+            ok, reason = self.jev_client.probe(self.jev_probe_timeout)
+        elif self.provider == "gemini":
+            ok, reason = self.gemini_client.probe(self.gemini_probe_timeout)
+        else:
             return
 
-        ok, reason = self.jev_client.probe(self.jev_probe_timeout)
         if ok:
-            print("[AI筛选] Jev 探活通过，本轮分类走 jev 通道")
+            channel = "Jev" if self.provider == "jev" else "Gemini"
+            print(f"[AI筛选] {channel} 探活通过，本轮分类走 {self.provider} 通道")
             return
 
         self.provider = "chat"
-        print(f"[AI筛选] Jev 探活失败（{reason}），本轮分类回落到 chat 通道（每批 {self.batch_size} 条）")
+        print(f"[AI筛选] 决策模型探活失败（{reason}），本轮分类回落到 chat 通道（每批 {self.batch_size} 条）")
 
     def plan_batches(self, titles: List[Dict], tags: List[Dict], interests_content: str = "") -> List[List[Dict]]:
         """
@@ -625,9 +652,57 @@ class AIFilter:
                 build_questions=lambda batch: self._jev_build_questions(batch, tags, interests_content),
                 max_items=self.jev_max_items,
             )
+        if self.provider == "gemini":
+            return self.plan_gemini_batches(titles, tags, interests_content)
 
         batch_size = self.batch_size
         return [titles[i:i + batch_size] for i in range(0, len(titles), batch_size)]
+
+    def plan_gemini_batches(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str = "",
+    ) -> List[List[Dict]]:
+        """按接口单题限制、请求数上限和配置的 TPM 突发容量动态分批。"""
+        max_reserved_tokens = self.gemini_client.rate_limiter.burst_capacity
+        token_safety_factor = 1.25
+        batches: List[List[Dict]] = []
+        current: List[Dict] = []
+
+        for title in titles:
+            candidate = current + [title]
+            questions = self._gemini_build_questions(candidate, tags)
+            estimated_tokens = self.gemini_client.estimate_request_tokens(
+                self._gemini_build_input(candidate, tags, interests_content), questions,
+            )
+            reserved_tokens = int(estimated_tokens * token_safety_factor + 0.999999)
+            exceeds_limit = (
+                len(questions) > 1000
+                or reserved_tokens > max_reserved_tokens
+                or len(candidate) > self.gemini_max_items
+            )
+            if current and exceeds_limit:
+                batches.append(current)
+                current = [title]
+                questions = self._gemini_build_questions(current, tags)
+                estimated_tokens = self.gemini_client.estimate_request_tokens(
+                    self._gemini_build_input(current, tags, interests_content), questions,
+                )
+                reserved_tokens = int(estimated_tokens * token_safety_factor + 0.999999)
+                if reserved_tokens > max_reserved_tokens:
+                    raise ValueError(
+                        f"单条新闻请求预计需要 {reserved_tokens} 个预算 tokens，"
+                        f"超过 Gemini 单请求突发容量 {max_reserved_tokens}"
+                    )
+            elif not current and exceeds_limit:
+                raise ValueError("Gemini 单批配置过小或单条新闻超出请求限制")
+            else:
+                current = candidate
+
+        if current:
+            batches.append(current)
+        return batches
 
     def _classify_batch_jev(
         self,
@@ -662,6 +737,155 @@ class AIFilter:
             return None
 
         return self._parse_jev_response(response, titles, tags)
+
+    def _classify_batch_gemini(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str = "",
+    ) -> Optional[List[Dict]]:
+        """阶段 B（Gemini）：每条新闻保留分类和推送两项独立判断。"""
+        if not self.gemini_client:
+            return None
+
+        input_text = self._gemini_build_input(titles, tags, interests_content)
+        questions = self._gemini_build_questions(titles, tags)
+
+        try:
+            response = self._gemini_decide_with_retry(input_text, questions)
+        except GeminiDecisionAPIError as error:
+            if error.status != 429:
+                print(f"[AI筛选] Gemini 分类请求失败: {type(error).__name__}: {error}")
+                return None
+            # 配额耗尽后继续逐批撞 429 只会让积压滚雪球（同 Jev 故障链），
+            # 本轮剩余批次改走 chat；下轮重新探活
+            self.provider = "chat"
+            print("[AI筛选][Gemini] 重试后仍被限流（429），本轮剩余批次回落到 chat 通道")
+            return self._classify_batch_chat(titles, tags, interests_content)
+        except Exception as error:
+            print(f"[AI筛选] Gemini 分类请求失败: {type(error).__name__}: {error}")
+            return None
+
+        usage = response.get("usage", {}) if isinstance(response, dict) else {}
+        if isinstance(usage, dict) and usage.get("total_input_tokens") is not None:
+            print(
+                f"[AI筛选][Gemini] 输入 tokens: {usage['total_input_tokens']}"
+                f"（估算 {self.gemini_client.estimate_request_tokens(input_text, questions)}）"
+            )
+
+        return self._parse_gemini_response(response, titles, tags)
+
+    def _gemini_decide_with_retry(self, input_text: str, questions: Dict[str, Dict]) -> Dict[str, Any]:
+        """429 时重试一次：客户端已按 Retry-After 记下解禁时间，再次调用会自动等到那时"""
+        try:
+            return self.gemini_client.decide(input_text, questions)
+        except GeminiDecisionAPIError as error:
+            if error.status != 429:
+                raise
+            print(f"[AI筛选][Gemini] 触发限流（429），等待约 {error.retry_after:.0f} 秒后重试一次")
+            return self.gemini_client.decide(input_text, questions)
+
+    def _gemini_build_input(
+        self,
+        titles: List[Dict],
+        tags: List[Dict],
+        interests_content: str,
+    ) -> str:
+        """把不变的分类标准只放进一次共享 input，避免在每道题重复标签描述。"""
+        definitions = "\n".join(
+            f"T{index:02d}: {tag['tag']} — {tag.get('description', '')}"
+            for index, tag in enumerate(tags, start=1)
+        )
+        quality_rules = self._extract_quality_rules(interests_content)
+        push_rule = f"用户关注方向：{'、'.join(tag['tag'] for tag in tags)}。"
+        if quality_rules:
+            push_rule += f"标题质量要求：{quality_rules}。"
+
+        news_list = "\n".join(
+            f"{title['id']}: [{title.get('source', '')}] {title['title']}"
+            for title in titles
+        )
+        return (
+            "只根据新闻标题判断，不要推测标题没有的信息。\n"
+            "分类定义（T01、T02 等为短分类键）：\n"
+            f"{definitions}\n"
+            "若一条新闻同时匹配多个方向，按以上标签顺序优先选择。\n"
+            "推送规则：\n"
+            f"{push_rule}\n"
+            "新闻列表（ID、来源、标题）：\n"
+            f"{news_list}"
+        )
+
+    @staticmethod
+    def _gemini_build_questions(
+        titles: List[Dict],
+        tags: List[Dict],
+    ) -> Dict[str, Dict]:
+        """每题只带短键和新闻 ID；标签名、描述和规则只存在共享 input 中
+
+        criteria 每道题都要重复一遍，是 token 的主要开销。实测 100 条：选项只留短键
+        比带标签名省 34% 输入 token（37.9k → 24.9k），choice 一致 93/100。
+        """
+        criteria = {f"T{index:02d}": "" for index in range(1, len(tags) + 1)}
+        criteria[GEMINI_NO_MATCH] = ""
+
+        questions: Dict[str, Dict] = {}
+        for title in titles:
+            news_id = title["id"]
+            news_ref = f"新闻 {news_id}"
+            questions[f"n{news_id}"] = {
+                "type": "choice",
+                "instructions": f"{news_ref} 最符合哪个分类？依据 input 中对应标题和分类定义，不匹配选 other。",
+                "criteria": criteria,
+            }
+            questions[f"push{news_id}"] = {
+                "type": "noul",
+                "instructions": f"{news_ref} 是否值得推送？依据 input 中的推送规则判断。",
+            }
+        return questions
+
+    @staticmethod
+    def _parse_gemini_response(
+        response: Any,
+        titles: List[Dict],
+        tags: List[Dict],
+    ) -> Optional[List[Dict]]:
+        """将 Decisions API 的答案映射到既有分类结果结构；缺答案时整批失败重试。"""
+        answers = response.get("answers") if isinstance(response, dict) else None
+        if not isinstance(answers, dict):
+            print("[AI筛选] Gemini 响应缺少 answers 字段，判定为失败")
+            return None
+
+        expected = [key for title in titles for key in (f"n{title['id']}", f"push{title['id']}")]
+        missing = [key for key in expected if key not in answers]
+        if missing:
+            print(f"[AI筛选] Gemini 响应缺少 {len(missing)}/{len(expected)} 个答案（如 {missing[:3]}），判定为失败")
+            return None
+
+        tags_by_key = {
+            f"T{index:02d}": tag
+            for index, tag in enumerate(tags, start=1)
+        }
+        results = []
+        for title in titles:
+            news_id = title["id"]
+            choice_answer = answers[f"n{news_id}"] or {}
+            push_answer = answers[f"push{news_id}"] or {}
+            choice = str(choice_answer.get("choice", ""))
+            if choice == GEMINI_NO_MATCH:
+                continue
+            tag = tags_by_key.get(choice)
+            if tag is None:
+                print(f"[AI筛选] Gemini 返回未知标签键 {choice}，跳过新闻 {news_id}")
+                continue
+
+            results.append({
+                "news_item_id": news_id,
+                "tag_id": int(tag["id"]),
+                "relevance_score": _clamp_score(choice_answer.get("confidence")),
+                "push_score": _clamp_score(push_answer.get("noul")),
+            })
+        return results
 
     def _jev_build_state(self, titles: List[Dict]) -> str:
         """构造 Jev 的共享上下文：只有新闻列表

@@ -1122,6 +1122,12 @@ ai_filter:
 
 > 💡 AI 筛选与 AI 分析/翻译共享模型配置，只需配置一次 `ai.api_key`
 
+#### 可选：使用 Gemini Decision 1 分类
+
+将 `ai_filter.provider` 设为 `gemini`，或在环境变量中设置 `AI_FILTER_PROVIDER=gemini`；Gemini API Key 从 `AI_FILTER_GEMINI_API_KEY` 环境变量读取（GitHub Actions 请配置同名 Secret）。
+
+Gemini 会保留每条新闻的「分类」和「是否值得推送」两个独立判断；标签说明和标题质量要求只放在每批共享输入中，不再重复塞进每道题。默认 `ai_filter.gemini.tokens_per_minute: 35000` 按免费层 50K TPM 配额留出余量，并依据 API 返回的真实 token 用量平滑限速；仍撞 429 时等待后重试一次，再失败则本轮剩余批次回落到 chat 通道。推送阈值用 `ai_filter.gemini.min_push_score`（默认 0.4），与 Jev 的阈值分开。标签提取和更新仍由原有 AI 筛选模型完成。
+
 ### **热点趋势分析**
 
 实时追踪新闻热度变化，让你不仅知道"什么在热搜"，更了解"热点如何演变"

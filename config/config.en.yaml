@@ -195,8 +195,10 @@ ai_filter:
                                           # chat = use the ai_filter_model LLM below (default, unchanged)
                                           # jev  = use the Jev decision model (TypeSafe System One),
                                           #        ~10x faster and adds an "is it worth pushing" dimension
+                                          # gemini = use the Google Gemini Decisions API (gemini-decision-1),
+                                          #          also yields category + "worth pushing"; see gemini below
                                           # Env var AI_FILTER_PROVIDER wins over this value:
-                                          # only "jev" switches channels; anything else stays on chat
+                                          # only "jev" / "gemini" switch channels; anything else stays on chat
                                           # NOTE: stage A (tag extraction/update) needs text generation,
                                           #       which Jev cannot do, so it always uses ai_filter_model
 
@@ -232,6 +234,23 @@ ai_filter:
                                           # 0.7 would over-filter, so keep 0 and gate on min_push_score
     min_push_score: 0.5                   # [jev channel] Min "worth pushing" threshold (0.0~1.0); 0=off
                                           # Measured on 100 titles: 0.5 is the natural cut, keeps ~30%
+
+  # Gemini Decisions API (only used when provider=gemini; stdlib HTTP, no extra SDK)
+  # Env vars (win over these values): AI_FILTER_GEMINI_API_KEY / AI_FILTER_GEMINI_TOKENS_PER_MINUTE
+  gemini:
+    api_key: ""                           # Prefer env vars or GitHub Secrets; do not commit keys
+    timeout: 60
+    probe_timeout: 30                     # Probe timeout (s); on failure this run falls back to chat
+    max_items_per_batch: 50               # Max titles per batch (shrinks further to fit the token budget)
+    tokens_per_minute: 35000              # App-side rate budget (input tokens/min)
+                                          # Free tier quota is 50000, leaving ~30% headroom; measured
+                                          # ~250 tokens/title, i.e. ~140 titles/min. Raise on paid tiers
+                                          # On 429: wait, retry once, then fall back to chat for this run
+
+    min_score: 0                          # [gemini channel] Relevance threshold, same meaning as jev.min_score
+    min_push_score: 0.4                   # [gemini channel] Min "worth pushing" threshold, separate from jev
+                                          # Gemini scores more conservatively than Jev-family models on the
+                                          # same 100 titles; 0.5 drops clearly relevant items
 
   # Interest description file (defaults to config/ai_interests.txt; no need to configure)
   # Put custom files in config/custom/ai/ and specify the name:

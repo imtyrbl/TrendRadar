@@ -325,10 +325,13 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
     """加载 AI 智能筛选配置（由 filter.method 控制是否启用）"""
     ai_filter = config_data.get("ai_filter", {})
     jev = ai_filter.get("jev", {})
+    gemini = ai_filter.get("gemini", {})
 
-    # 分类通道：环境变量优先于配置；只有明确填 jev 才走 Jev，其余一律走原有 chat 通道
+    # 分类通道：环境变量优先于配置；只有明确填 jev / gemini 才走决策模型，其余一律走原有 chat 通道
     provider_raw = _get_env_str("AI_FILTER_PROVIDER") or ai_filter.get("provider", "chat")
-    provider = "jev" if str(provider_raw).strip().lower() == "jev" else "chat"
+    provider_name = str(provider_raw).strip().lower()
+    provider = provider_name if provider_name in {"jev", "gemini"} else "chat"
+    gemini_tpm_env = _get_env_int_or_none("AI_FILTER_GEMINI_TOKENS_PER_MINUTE")
 
     return {
         "BATCH_SIZE": ai_filter.get("batch_size", 200),
@@ -353,6 +356,16 @@ def _load_ai_filter_config(config_data: Dict) -> Dict:
         "JEV_TIMEOUT": jev.get("timeout", 300),
         "JEV_PROBE_TIMEOUT": jev.get("probe_timeout", 30),
         "JEV_MAX_ITEMS_PER_BATCH": jev.get("max_items_per_batch", 15),
+
+        # Gemini Decisions 通道（阶段A标签提取仍走 AI_FILTER_MODEL）
+        "GEMINI_API_KEY": _get_env_str("AI_FILTER_GEMINI_API_KEY") or gemini.get("api_key", ""),
+        "GEMINI_TIMEOUT": gemini.get("timeout", 60),
+        "GEMINI_PROBE_TIMEOUT": gemini.get("probe_timeout", 30),
+        "GEMINI_MAX_ITEMS_PER_BATCH": gemini.get("max_items_per_batch", 50),
+        "GEMINI_TOKENS_PER_MINUTE": gemini_tpm_env if gemini_tpm_env is not None else gemini.get("tokens_per_minute", 35000),
+        # Gemini 的阈值单独一份：实测其 push 分布比 Jev 系模型更保守，不能共用
+        "GEMINI_MIN_SCORE": float(gemini.get("min_score", 0)),
+        "GEMINI_MIN_PUSH_SCORE": float(gemini.get("min_push_score", 0)),
     }
 
 

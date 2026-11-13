@@ -210,8 +210,10 @@ ai_filter:
                                           # chat = 走下方 ai_filter_model 的 LLM（默认，行为不变）
                                           # jev  = 走 Jev 决策模型（TypeSafe System One），
                                           #        快约 10 倍，且能额外给出「是否值得推送」维度
+                                          # gemini = 走 Google Gemini Decisions API（gemini-decision-1），
+                                          #          同样给出分类 + 「是否值得推送」，见下方 gemini 段
                                           # 环境变量 AI_FILTER_PROVIDER 优先于这里：
-                                          # 填 jev 才走 Jev，未配置或填其它值一律走 chat
+                                          # 填 jev / gemini 才走决策模型，未配置或填其它值一律走 chat
                                           # ⚠️ 阶段A（标签提取/更新）需要生成文本，Jev 做不了，
                                           #    即使 provider=jev 也仍走 ai_filter_model
 
@@ -248,6 +250,23 @@ ai_filter:
                                           # 0.7 会误砍大量结果，建议保持 0，改由 min_push_score 把关
     min_push_score: 0.5                   # 【jev 通道】「是否值得推送」最低阈值（0.0~1.0），0=不过滤
                                           # 实测 100 条样本：0.5 是自然分界，保留约三成
+
+  # Gemini Decisions API 配置（仅 provider=gemini 时使用，标准库直连，无需额外 SDK）
+  # 支持的环境变量（优先于这里）：AI_FILTER_GEMINI_API_KEY / AI_FILTER_GEMINI_TOKENS_PER_MINUTE
+  gemini:
+    api_key: ""                           # 建议用环境变量或 GitHub Secrets，不要写进仓库
+    timeout: 60
+    probe_timeout: 30                     # 探活超时（秒），不通则本轮分类整体回落到 chat 通道
+    max_items_per_batch: 50               # 每批新闻条数上限（超出单请求 token 预算会自动再缩批）
+    tokens_per_minute: 35000              # 应用端限速预算（输入 token/分钟）
+                                          # 免费层配额是 50000，留约 30% 余量；实测约 250 token/条，
+                                          # 即每分钟约 140 条。付费层可按实际配额调高
+                                          # 仍撞 429 时会等待后重试一次，再失败则本轮剩余批次回落 chat
+
+    min_score: 0                          # 【gemini 通道】相关度阈值，含义同 jev.min_score，建议保持 0
+    min_push_score: 0.4                   # 【gemini 通道】「是否值得推送」最低阈值，与 jev 的分开
+                                          # 实测同 100 条样本 Gemini 打分比 Jev 系模型保守，
+                                          # 0.5 会卡掉明显相关的条目，0.4 更合适
 
   # 兴趣描述文件（默认 config/ai_interests.txt，无需配置）
   # 自定义文件放入 config/custom/ai/ 目录，然后指定文件名：

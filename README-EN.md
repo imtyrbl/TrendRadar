@@ -1067,6 +1067,12 @@ ai_filter:
 
 > 💡 AI filtering shares model config with AI analysis/translation — just configure `ai.api_key` once
 
+#### Optional: Gemini Decision 1 classification
+
+Set `ai_filter.provider` to `gemini`, or set `AI_FILTER_PROVIDER=gemini` in the environment; supply the Gemini API key through `AI_FILTER_GEMINI_API_KEY` (use a GitHub Actions secret with the same name).
+
+Gemini keeps classification and push-worthiness as two independent decisions per news item. Tag descriptions and title-quality rules are included once in each batch's shared input instead of being repeated in every question. The default `ai_filter.gemini.tokens_per_minute: 35000` leaves headroom below a 50K TPM quota and rate-limits batches using actual token usage returned by the API; on a 429 it waits and retries once, then falls back to the chat channel for the rest of the run. The push threshold is `ai_filter.gemini.min_push_score` (default 0.4), separate from Jev's. Tag extraction and updates continue to use the existing AI filter model.
+
 ### **Trending Analysis**
 
 Real-time tracking of news popularity changes helps you understand not just "what's trending" but "how trends evolve."
