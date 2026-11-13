@@ -242,9 +242,9 @@ ai_filter:
     timeout: 60
     probe_timeout: 30                     # Probe timeout (s); on failure this run falls back to chat
     max_items_per_batch: 50               # Max titles per batch (shrinks further to fit the token budget)
-    tokens_per_minute: 35000              # App-side rate budget (input tokens/min)
-                                          # Free tier quota is 50000, leaving ~30% headroom; measured
-                                          # ~250 tokens/title, i.e. ~140 titles/min. Raise on paid tiers
+    tokens_per_minute: 45000              # App-side rate budget (input tokens/min)
+                                          # Free tier quota is 50000, leaving ~10% headroom; measured
+                                          # ~250 tokens/title, i.e. ~180 titles/min. Raise on paid tiers
                                           # On 429: wait, retry once, then fall back to chat for this run
 
     min_score: 0                          # [gemini channel] Relevance threshold, same meaning as jev.min_score

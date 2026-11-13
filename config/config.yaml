@@ -258,9 +258,9 @@ ai_filter:
     timeout: 60
     probe_timeout: 30                     # 探活超时（秒），不通则本轮分类整体回落到 chat 通道
     max_items_per_batch: 50               # 每批新闻条数上限（超出单请求 token 预算会自动再缩批）
-    tokens_per_minute: 35000              # 应用端限速预算（输入 token/分钟）
-                                          # 免费层配额是 50000，留约 30% 余量；实测约 250 token/条，
-                                          # 即每分钟约 140 条。付费层可按实际配额调高
+    tokens_per_minute: 45000              # 应用端限速预算（输入 token/分钟）
+                                          # 免费层配额是 50000，留约 10% 余量；实测约 250 token/条，
+                                          # 即每分钟约 180 条。付费层可按实际配额调高
                                           # 仍撞 429 时会等待后重试一次，再失败则本轮剩余批次回落 chat
 
     min_score: 0                          # 【gemini 通道】相关度阈值，含义同 jev.min_score，建议保持 0
